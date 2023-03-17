@@ -1,0 +1,430 @@
+# Load packages ####
+
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(amt)
+library(raster)
+
+# Save? ####
+
+save <- FALSE
+
+# Path to file folder ####
+
+path <- "../../../MuleDeerUtah/CleanedFiles/"
+
+list.files(path)
+
+# Load and format data ####
+
+la_sal <- read.csv(paste0(path, "LaSal_Newest_Cleaned.csv")) %>%
+  mutate(study_area = "La Sal",
+         mortality = case_when(
+           mortality == "true" ~ TRUE,
+           mortality == "false" ~ FALSE
+         )) %>%
+  rename(currentCohort = currentCoh,
+         projectName = projectNam,
+         captureUnit = captureUni,
+         captureSubUnit = captureSub,
+         realCaptureArea = realCaptur,
+         uniqueID_Range = uniqueID_R) %>%
+  dplyr::select(-uniqueID_1, -Used, -dateYearAn) %>%
+  mutate(dateYearAndJulian = ymd_hms(dateYearAndJulian, tz = "America/Denver"))
+north_slope <- read.csv(paste0(path, "NorthSlope_Newest_Cleaned.csv")) %>%
+  mutate(study_area = "North Slope",
+         mortality = case_when(
+           mortality == "true" ~ TRUE,
+           mortality == "false" ~ FALSE
+         )) %>%
+  rename(currentCohort = currentCoh,
+         projectName = projectNam,
+         captureUnit = captureUni,
+         captureSubUnit = captureSub,
+         realCaptureArea = realCaptur,
+         uniqueID_Range = uniqueID_R) %>%
+  dplyr::select(-uniqueID_1, -Used, -lat_new, -long_new, -dateYearAn) %>%
+  mutate(dateYearAndJulian = ymd_hms(dateYearAndJulian, tz = "America/Denver"))
+san_juan <- read.csv(paste0(path, "SanJuan_Newest_Cleaned.csv")) %>%
+  mutate(study_area = "San Juan",
+         mortality = case_when(
+           mortality == "true" ~ TRUE,
+           mortality == "false" ~ FALSE
+         )) %>%
+  rename(collarObje = collarObjectId) %>%
+  dplyr::select(-lat_new, -long_new) %>%
+  mutate(dateYearAndJulian = ymd_hms(dateYearAndJulian, tz = "America/Denver"))
+south_manti <- read.csv(paste0(path, "SouthManti_Newest_Cleaned.csv")) %>%
+  mutate(study_area = "South Manti") %>%
+  rename(currentCohort = currentCoh,
+         projectName = projectNam,
+         captureUnit = captureUni,
+         captureSubUnit = captureSub,
+         realCaptureArea = realCaptur,
+         uniqueID_Range = uniqueID_R) %>%
+  dplyr::select(-Used, -dateYearAn) %>%
+  mutate(dateYearAndJulian = mdy_hm(dateYearAndJulian, tz = "America/Denver"))
+south_slope <- read.csv(paste0(path, "SouthSlope_Newest_Cleaned.csv")) %>%
+  mutate(study_area = "South Slope",
+         mortality = case_when(
+           mortality == "true" ~ TRUE,
+           mortality == "false" ~ FALSE
+         )) %>%
+  rename(collarObje = collarObjectId) %>%
+  dplyr::select(-lat_new, -long_new) %>%
+  mutate(dateYearAndJulian = ymd_hms(dateYearAndJulian, tz = "America/Denver"))
+
+# Ask Kezia:
+# 1. what are lat_new and long_new?
+# 2. am I correct to assume Mountain time zone or is it UTC?
+
+# Merge ####
+
+mule <- bind_rows(la_sal, north_slope, san_juan, south_manti, south_slope) %>%
+  rename(timestamp = dateYearAndJulian) %>%
+  dplyr::select(-projectName, -uniqueID_1, -uniqueID_Range_Year, -X, -da) %>%
+  # The same individual was sometimes re-collared with a new collar programmed
+  # with a different fix rate (e.g., MD15F0016).
+  # Treat these as separate deployments
+  mutate(deploy_ID = paste0(uniqueID, "_", collarID))
+
+summary(mule)
+
+rm(list = ls()[!ls() %in% c("mule", "path")])
+
+# Transform to spatial ####
+
+mule_sf <- mule %>%
+  dplyr::select(uniqueID, deploy_ID, latitude, longitude, timestamp, study_area) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+st_write(mule_sf, "output/mule-deer-raw.shp")
+
+# Add UTM coordinates ####
+
+mule_utm <- st_transform(mule_sf, crs = 32612)
+
+mule <- mule %>%
+  cbind(st_coordinates(mule_utm)) %>%
+  rename(utm_x = X, utm_y = Y)
+
+rm(mule_sf)
+rm(mule_utm)
+
+# Check temporal resolution ####
+
+# Check how far off points are from the expected time
+mule %>%
+  mutate(exp_timestamp = round_date(timestamp, unit = "hour"),
+         time_error = abs(as.numeric(
+           difftime(timestamp, exp_timestamp, unit = "secs")
+         ))) %>%
+  pull(time_error) %>%
+  table() # the vast majority are within 5 minutes (900 secs)
+# but there are some that are up to 30 minutes away
+
+# Get rid of any fixes taken > 15 min away from the expected timestamp and
+# round timestamp to the closest hour
+mule_round_timestamp <- mule %>%
+  mutate(exp_timestamp = round_date(timestamp, unit = "hour"),
+         time_error = abs(as.numeric(
+           difftime(timestamp, exp_timestamp, unit = "secs")
+         ))) %>%
+  filter(time_error <= 900) %>%
+  dplyr::select(-timestamp, time_error) %>%
+  rename(timestamp = exp_timestamp)
+
+# Temporal resolution
+mule_round_timestamp %>%
+  group_by(deploy_ID) %>%
+  arrange(timestamp) %>%
+  mutate(lag = as.numeric(difftime(timestamp, lag(timestamp), unit = "hours"))) %>%
+  pull(lag) %>%
+  table() %>%
+  sort() # data are mostly at 2-hour intervals
+
+# Were all collars programmed with a 2-hour lag?
+mule_round_timestamp %>%
+  group_by(deploy_ID) %>%
+  arrange(timestamp) %>%
+  mutate(lag = as.numeric(difftime(timestamp, lag(timestamp), unit = "hours"))) %>%
+  group_by(deploy_ID, lag) %>%
+  tally() %>%
+  arrange(deploy_ID, desc(n)) %>%
+  slice(1) %>%
+  pull(lag) %>%
+  table()
+# It looks like 475 collars were programmed to collect data every 2 hours,
+# all others at every 12 or more. Is this right? Check with Kezia.
+
+# Assuming that is right, keep only deployments that have 2-hour data.
+keepers <- mule_round_timestamp %>%
+  group_by(deploy_ID) %>%
+  mutate(lag = as.numeric(difftime(timestamp, lag(timestamp), unit = "hours"))) %>%
+  group_by(deploy_ID, lag) %>%
+  tally() %>%
+  arrange(deploy_ID, desc(n)) %>%
+  slice(1) %>%
+  filter(lag == 2) %>%
+  pull(deploy_ID)
+
+mule_2h <- mule_round_timestamp %>%
+  filter(deploy_ID %in% keepers)
+
+# Speed filter ####
+
+# Flag, don't remove entirely
+
+mule_2h <- mule_2h %>%
+  nest(trk = -deploy_ID) %>%
+  mutate(trk = lapply(trk, function(x) {
+    x %>%
+      make_track(.x = utm_x, .y = utm_y, .t = timestamp) %>%
+      mutate(sl_ = step_lengths(.))
+  })) %>%
+  unnest(cols = trk)
+
+quantile(mule_2h$sl_, 0.9999, na.rm = TRUE)
+
+mule_2h %>%
+  nest(trk = -deploy_ID) %>%
+hist(sdr(mule_2h), breaks = 30)
+
+# LEFT OFF HERE ####
+
+# Summaries ####
+
+# Number of individuals
+length(unique(mule_2h$uniqueID)) # 468
+
+# Number of deployments
+length(unique(mule_2h$deploy_ID)) # 475
+
+# Years
+sort(unique(year(mule_2h$timestamp))) # from 2017 to 2021
+
+# Data points per deployment
+pts_per_dep <- mule_2h %>%
+  group_by(deploy_ID) %>%
+  tally() %>%
+  arrange(n)
+
+hist(pts_per_dep$n)
+
+# Drop deployments with few data points ####
+
+# Could be more aggressive here; remove anyone that wasn't tracked for >=2 weeks
+keepers <- pts_per_dep %>%
+  filter(n >= 25) %>%
+  pull(deploy_ID)
+
+mule_2h <- mule_2h %>%
+  filter(deploy_ID %in% keepers)
+
+# Number of individuals
+length(unique(mule_2h$uniqueID)) # 463
+
+# Number of deployments
+length(unique(mule_2h$deploy_ID)) # 470
+
+# Introduce NAs at expected timestamps when fix was not taken ####
+
+mule_resample <- mule_2h %>%
+  nest(trk = -deploy_ID) %>%
+  mutate(trk = lapply(trk, function(x) {
+    x %>%
+      make_track(.x = utm_x, .y = utm_y, .t = timestamp) %>%
+      track_resample(rate = hours(2))
+  })) %>%
+  unnest(cols = trk)
+
+ranges <- mule_resample %>%
+  mutate(burst_ID = paste0(deploy_ID, "_", burst_)) %>%
+  group_by(burst_ID, deploy_ID) %>%
+  summarize(start = min(t_),
+            end = max(t_)) %>%
+  arrange(deploy_ID, start)
+
+mule_nas <- rep(NA, ncol(mule_2h)) %>%
+  as.matrix() %>%
+  t() %>%
+  as.data.frame()
+
+names(mule_nas) <- names(mule_2h)
+
+mule_nas$timestamp <- ymd_hms(mule_nas$timestamp, tz = "America/Denver")
+
+for (i in 1:length(unique(ranges$deploy_ID))) {
+
+  print(i)
+
+  who <- unique(ranges$deploy_ID)[i]
+
+  rng <- ranges %>%
+    filter(deploy_ID == who)
+
+  ts <- ymd_hms(NA, tz = "America/Denver")
+
+  if(nrow(rng) > 1) {
+
+    for (j in 1:(nrow(rng) - 1)) {
+
+    ts <- c(ts,
+            seq(rng[j, ]$end, rng[j + 1, ]$start, by = "2 hours"))
+
+    }
+
+      ts <- ts[-1]
+
+      }
+
+  coord <- mule_2h %>%
+    filter(deploy_ID == who)
+
+  all_ts <- sort(unique(c(coord$timestamp, ts)))
+
+  res <- data.frame(deploy_ID = who,
+                    timestamp = all_ts) %>%
+    left_join(coord, by = c("deploy_ID", "timestamp"))
+
+  mule_nas <- rbind(mule_nas, res)
+
+}
+
+mule_nas <- mule_nas[-1, ]
+
+# Save ####
+
+if (save) {saveRDS(mule_nas, "output/mule-deer_regularized-2h.rds")}
+
+# Check that daylight savings have been correctly accounted for
+# test1 <- mule_2h %>% filter(deploy_ID == "MD18M0090_42088")
+# test2 <- mule_nas %>% filter(deploy_ID == "MD18M0090_42088")
+
+# Remove gaps > 1 day ####
+
+test <- mule_nas %>%
+  mutate(date = as_date(timestamp),
+         fix = ifelse(is.na(utm_x), FALSE, TRUE)) %>%
+  group_by(deploy_ID, date, fix) %>%
+  tally() %>%
+  ungroup() %>%
+  mutate(have_data = case_when(
+    !fix & n == 12 ~ FALSE,
+    TRUE ~ TRUE
+  )) %>%
+  distinct(deploy_ID, date, have_data)
+
+first_streak <- test %>%
+  group_by(deploy_ID) %>%
+  arrange(date) %>%
+  slice(1) %>%
+  mutate(streak = 1)
+
+test <- test %>%
+  left_join(first_streak)
+
+for (r in 2:nrow(test)) {
+
+  print(r)
+
+  test[r, ]$streak <- case_when(
+    test[r, ]$streak == 1 ~ test[r, ]$streak,
+    test[r, ]$have_data & test[r - 1, ]$have_data ~ test[r - 1, ]$streak,
+    !test[r, ]$have_data ~ test[r - 1, ]$streak,
+    test[r, ]$have_data & !test[r - 1, ]$have_data ~ test[r - 1, ]$streak + 1
+  )
+
+  }
+
+mule_nas <- mule_nas %>%
+  mutate(date = as_date(timestamp)) %>%
+  left_join(test, by = c("deploy_ID", "date"))
+
+# Assign burst by combining deployment ID and streak
+mule_streaks <- mule_nas %>%
+  mutate(burst = paste0(deploy_ID, "_", streak)) %>%
+  # Get rid of days without data
+  filter(have_data)
+
+# Make sure the individual info are associated to the missing locations too
+ind_info <- mule_streaks %>%
+  dplyr::select(uniqueID, species, sex, captureUnit, uniqueID_Range) %>%
+  distinct()
+
+mule_final <- mule_streaks %>%
+  dplyr::select(uniqueID, burst, deploy_ID, collarID, timestamp, utm_x, utm_y,
+         latitude, longitude,
+         mortality, currentAge, currentCohort) %>%
+  left_join(ind_info)
+
+# Check
+nrow(mule_streaks) == nrow(mule_final)
+
+# Get rid of short streaks ####
+
+keepers <- mule_final %>%
+  group_by(burst) %>%
+  tally() %>%
+  arrange(n) %>%
+  filter(n >= 10) %>%
+  pull(burst)
+
+mule_final <- mule_final %>%
+  filter(burst %in% keepers)
+
+# Save ####
+
+if (save) {saveRDS(mule_final, "output/mule-deer_regularized-2h_with-NAs.rds")}
+
+# Map KDE + CWD occurrences ####
+
+# Load data on CWD occurrences (2021-2022)
+cwd <- readxl::read_xlsx("input/CWD_June2021_Present.xlsx")
+
+# Load UT boundary
+utah <- sf::read_sf("../../../Other People/Ben Crabb/From Ben/clean_data/boundaries/Utah_NAD83_12N.shp")
+
+# Create template raster
+template <- raster(ext = extent(utah), res = 1000, crs = crs(utah))
+
+# Subsample to one centroid per individual and format for amt
+mule_amt <- mule %>%
+  group_by(deploy_ID) %>%
+  summarize(centroid_x = mean(utm_x), centroid_y = mean(utm_y)) %>%
+  as.data.frame() %>%
+  make_track(centroid_x, centroid_y)
+
+# Calculate KDE
+
+hr_all <- hr_kde(mule_amt, trast = template, levels = c(0.90),
+                 h = c(20000, 20000))
+
+# Crop to Utah extent
+
+utah_ud <- crop(hr_all$ud, utah)
+
+# Create dummy raster to say whether a point is inside or outside UT
+dummy <- rasterize(utah, utah_ud)
+values(utah_ud) <- ifelse(is.na(values(dummy)), NA, values(utah_ud))
+
+# Take CWD positive cases
+cwd_pos <- cwd %>%
+  filter(Results %in% c("Positive") & Species == "Deer") %>%
+  st_as_sf(coords = c("GeoLong", "GeoLat"), crs = 4326) %>%
+  st_transform(crs = 32612)
+
+# Plot
+ggplot() +
+  geom_raster(data = as.data.frame(utah_ud, xy = TRUE),
+              mapping = aes(x = x, y = y, fill = layer)) +
+  geom_sf(data = utah, fill = NA) +
+  geom_sf(data = cwd_pos, fill = "chartreuse", shape = 21) +
+  scale_fill_viridis_c(option = "magma", na.value = NA,
+                       breaks = c(0, 3e-11, 6e-11), labels = c("Low", "Med", "High")) +
+  theme_void() +
+  labs(fill = "Collared\nmule deer\ndensity", title = "Confirmed CWD cases")
+
+if (save) {ggsave("output/confirmed-CWD_2023-01-16_v2.tiff", compression = "lzw",
+       width = 3.5, height = 6, dpi = 400)}
