@@ -172,26 +172,38 @@ keepers <- mule_round_timestamp %>%
 mule_2h <- mule_round_timestamp %>%
   filter(deploy_ID %in% keepers)
 
+# Remove duplicates ####
+
+sum(duplicated(mule_2h[, c("deploy_ID", "timestamp")]))
+
+mule_2h <- mule_2h[!duplicated(mule_2h[, c("deploy_ID", "timestamp")]), ]
+
 # Speed filter ####
 
 # Flag, don't remove entirely
 
-mule_2h <- mule_2h %>%
+mule_sdr <- mule_2h %>%
   nest(trk = -deploy_ID) %>%
   mutate(trk = lapply(trk, function(x) {
     x %>%
       make_track(.x = utm_x, .y = utm_y, .t = timestamp) %>%
       mutate(sl_ = step_lengths(.))
-  })) %>%
-  unnest(cols = trk)
+  }))
 
-quantile(mule_2h$sl_, 0.9999, na.rm = TRUE)
+sdr_values <- do.call("c", lapply(mule_sdr$trk, sdr))
+hist(sdr_values, breaks = 5000, xlim = c(0, 2000))
 
-mule_2h %>%
+mule_2h <- mule_2h %>%
   nest(trk = -deploy_ID) %>%
-hist(sdr(mule_2h), breaks = 30)
-
-# LEFT OFF HERE ####
+  mutate(trk = lapply(trk, function(x) {
+    x %>%
+      make_track(.x = utm_x, .y = utm_y, .t = timestamp, all_cols = TRUE) %>%
+      mutate(sl_ = step_lengths(.)) %>%
+      flag_fast_steps(delta = 1000)
+  })) %>%
+ unnest(cols = trk) %>%
+ filter(!fast_step_) %>%
+ mutate(uniqueID = stringr::word(deploy_ID, 1, 1, "_"))
 
 # Summaries ####
 
@@ -202,7 +214,7 @@ length(unique(mule_2h$uniqueID)) # 468
 length(unique(mule_2h$deploy_ID)) # 475
 
 # Years
-sort(unique(year(mule_2h$timestamp))) # from 2017 to 2021
+sort(unique(year(mule_2h$t_))) # from 2017 to 2021
 
 # Data points per deployment
 pts_per_dep <- mule_2h %>%
@@ -223,10 +235,10 @@ mule_2h <- mule_2h %>%
   filter(deploy_ID %in% keepers)
 
 # Number of individuals
-length(unique(mule_2h$uniqueID)) # 463
+length(unique(mule_2h$uniqueID)) # 462
 
 # Number of deployments
-length(unique(mule_2h$deploy_ID)) # 470
+length(unique(mule_2h$deploy_ID)) # 469
 
 # Introduce NAs at expected timestamps when fix was not taken ####
 
@@ -234,7 +246,7 @@ mule_resample <- mule_2h %>%
   nest(trk = -deploy_ID) %>%
   mutate(trk = lapply(trk, function(x) {
     x %>%
-      make_track(.x = utm_x, .y = utm_y, .t = timestamp) %>%
+      make_track(.x = x_, .y = y_, .t = t_) %>%
       track_resample(rate = hours(2))
   })) %>%
   unnest(cols = trk)
@@ -253,7 +265,7 @@ mule_nas <- rep(NA, ncol(mule_2h)) %>%
 
 names(mule_nas) <- names(mule_2h)
 
-mule_nas$timestamp <- ymd_hms(mule_nas$timestamp, tz = "America/Denver")
+mule_nas$t_ <- ymd_hms(mule_nas$t_, tz = "America/Denver")
 
 for (i in 1:length(unique(ranges$deploy_ID))) {
 
@@ -282,11 +294,11 @@ for (i in 1:length(unique(ranges$deploy_ID))) {
   coord <- mule_2h %>%
     filter(deploy_ID == who)
 
-  all_ts <- sort(unique(c(coord$timestamp, ts)))
+  all_ts <- sort(unique(c(coord$t_, ts)))
 
   res <- data.frame(deploy_ID = who,
-                    timestamp = all_ts) %>%
-    left_join(coord, by = c("deploy_ID", "timestamp"))
+                    t_ = all_ts) %>%
+    left_join(coord, by = c("deploy_ID", "t_"))
 
   mule_nas <- rbind(mule_nas, res)
 
@@ -305,8 +317,8 @@ if (save) {saveRDS(mule_nas, "output/mule-deer_regularized-2h.rds")}
 # Remove gaps > 1 day ####
 
 test <- mule_nas %>%
-  mutate(date = as_date(timestamp),
-         fix = ifelse(is.na(utm_x), FALSE, TRUE)) %>%
+  mutate(date = as_date(t_),
+         fix = ifelse(is.na(x_), FALSE, TRUE)) %>%
   group_by(deploy_ID, date, fix) %>%
   tally() %>%
   ungroup() %>%
@@ -339,7 +351,7 @@ for (r in 2:nrow(test)) {
   }
 
 mule_nas <- mule_nas %>%
-  mutate(date = as_date(timestamp)) %>%
+  mutate(date = as_date(t_)) %>%
   left_join(test, by = c("deploy_ID", "date"))
 
 # Assign burst by combining deployment ID and streak
@@ -349,12 +361,13 @@ mule_streaks <- mule_nas %>%
   filter(have_data)
 
 # Make sure the individual info are associated to the missing locations too
-ind_info <- mule_streaks %>%
+ind_info <- mule %>%
   dplyr::select(uniqueID, species, sex, captureUnit, uniqueID_Range) %>%
-  distinct()
+  distinct() %>%
+  filter(uniqueID %in% unique(mule_streaks$uniqueID))
 
 mule_final <- mule_streaks %>%
-  dplyr::select(uniqueID, burst, deploy_ID, collarID, timestamp, utm_x, utm_y,
+  dplyr::select(uniqueID, burst, deploy_ID, t_, x_, y_,
          latitude, longitude,
          mortality, currentAge, currentCohort) %>%
   left_join(ind_info)
