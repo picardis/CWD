@@ -377,7 +377,9 @@ nrow(mule_streaks) == nrow(mule_final)
 
 # Get rid of short streaks ####
 
+# Count only points where coordinates are not NA
 keepers <- mule_final %>%
+  filter(!is.na(x_) & !is.na(y_)) %>%
   group_by(burst) %>%
   tally() %>%
   arrange(n) %>%

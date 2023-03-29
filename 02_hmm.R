@@ -33,11 +33,11 @@ hist(mule$step)
 source("FUN_gamma_pars.R")
 
 # Short state
-test1 <- gamma_pars(mean = 10, sd = 10)
+test1 <- gamma_pars(mean = 10, sd = 5)
 # Intermediate state
-test2 <- gamma_pars(mean = 150, sd = 150) # 150, 200
+test2 <- gamma_pars(mean = 150, sd = 75) # 150, 200
 # Long state
-test3 <- gamma_pars(mean = 500, sd = 500)
+test3 <- gamma_pars(mean = 1000, sd = 500)
 
 hist(mule$step, breaks = 100, freq = FALSE)
 lines(dgamma(x = c(0:7000), shape = test1[2], rate = test1[1]), col = "red")
@@ -52,9 +52,9 @@ system.time({
                dist = list(step = "gamma", angle = "vm"),
                Par0 = list(step = c(mean_1 = 10,
                                     mean_2 = 150,
-                                    mean_3 = 500,
-                                    sd_1 = 10,
-                                    sd_2 = 150,
+                                    mean_3 = 1000,
+                                    sd_1 = 5,
+                                    sd_2 = 75,
                                     sd_3 = 500,
                                     zeromass_1 = 0.5,
                                     zeromass_2 = 0.01,
@@ -64,4 +64,4 @@ system.time({
                                      concentration_3 = 0.99)))
   })
 
-saveRDS(hmm1, "output/HMM1_2023-03-27.rds")
+saveRDS(hmm1, "output/HMM1_2023-03-28.rds")
