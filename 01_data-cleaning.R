@@ -180,8 +180,6 @@ mule_2h <- mule_2h[!duplicated(mule_2h[, c("deploy_ID", "timestamp")]), ]
 
 # Speed filter ####
 
-# Flag, don't remove entirely
-
 mule_sdr <- mule_2h %>%
   nest(trk = -deploy_ID) %>%
   mutate(trk = lapply(trk, function(x) {
@@ -226,9 +224,9 @@ hist(pts_per_dep$n)
 
 # Drop deployments with few data points ####
 
-# Could be more aggressive here; remove anyone that wasn't tracked for >=2 weeks
+# Could be more aggressive here; remove anyone with < 50 points
 keepers <- pts_per_dep %>%
-  filter(n >= 25) %>%
+  filter(n >= 50) %>%
   pull(deploy_ID)
 
 mule_2h <- mule_2h %>%
@@ -242,6 +240,14 @@ length(unique(mule_2h$deploy_ID)) # 469
 
 # Introduce NAs at expected timestamps when fix was not taken ####
 
+# I am using track_resample because it will assign a new burst number
+# incrementally each time there is a gap in the data longer than 2 hours.
+# However, I have to deal with the fact that the schedule sometimes shifts by an
+# odd number of hours. I want to introduce NAs for as long as the individual
+# stays on either odd or even hours, and treat it as a different burst when it
+# switches from odd to even or viceversa.
+
+# Identify places where there is a gap > 2 hours. Each becomes a burst
 mule_resample <- mule_2h %>%
   nest(trk = -deploy_ID) %>%
   mutate(trk = lapply(trk, function(x) {
@@ -251,6 +257,7 @@ mule_resample <- mule_2h %>%
   })) %>%
   unnest(cols = trk)
 
+# Start and end timestamps of each burst
 ranges <- mule_resample %>%
   mutate(burst_ID = paste0(deploy_ID, "_", burst_)) %>%
   group_by(burst_ID, deploy_ID) %>%
@@ -258,6 +265,44 @@ ranges <- mule_resample %>%
             end = max(t_)) %>%
   arrange(deploy_ID, start)
 
+# Identify places where schedule switches by an odd number of hours between
+# consecutive bursts of the same individual.
+ranges <- ranges %>%
+  group_by(deploy_ID) %>%
+  mutate(gap = as.numeric(difftime(start, lag(end), unit = "hours")),
+         odd = gap %% 2)
+
+# Now assign a streak ID that only changes if the schedule switches by an odd
+# number of hours for a single deployment
+
+# Each deployment starts with streak 1
+first_streak_start <- ranges %>%
+  group_by(deploy_ID) %>%
+  slice(1) %>%
+  mutate(streak = 1)
+
+ranges <- ranges %>%
+  left_join(first_streak_start)
+
+# Incrementally increase streak number when schedule switches by odd number of
+# hours
+for (i in 1:nrow(ranges)) {
+  print(i)
+  if (is.na(ranges$streak[i])) {
+    ranges$streak[i] <- ranges$streak[i - 1] + ranges$odd[i]
+}}
+
+# Create streak ID
+ranges <- ranges %>%
+  mutate(streak_ID = paste0(deploy_ID, "_", streak))
+
+# Get rid of streaks composed of only one fix
+ranges <- ranges %>%
+  filter(start != end)
+
+# Now I'm ready to introduce NAs within each streak (not between streaks)
+
+# Create empty data frame to store results
 mule_nas <- rep(NA, ncol(mule_2h)) %>%
   as.matrix() %>%
   t() %>%
@@ -265,16 +310,20 @@ mule_nas <- rep(NA, ncol(mule_2h)) %>%
 
 names(mule_nas) <- names(mule_2h)
 
+mule_nas <- cbind.data.frame(streak_ID = NA,
+                             mule_nas)
+
 mule_nas$t_ <- ymd_hms(mule_nas$t_, tz = "America/Denver")
 
-for (i in 1:length(unique(ranges$deploy_ID))) {
+# Loop over streak ID ranges
+for (i in 1:length(unique(ranges$streak_ID))) {
 
   print(i)
 
-  who <- unique(ranges$deploy_ID)[i]
+  who <- unique(ranges$streak_ID)[i]
 
   rng <- ranges %>%
-    filter(deploy_ID == who)
+    filter(streak_ID == who)
 
   ts <- ymd_hms(NA, tz = "America/Denver")
 
@@ -282,23 +331,39 @@ for (i in 1:length(unique(ranges$deploy_ID))) {
 
     for (j in 1:(nrow(rng) - 1)) {
 
-    ts <- c(ts,
-            seq(rng[j, ]$end, rng[j + 1, ]$start, by = "2 hours"))
+      ts <- c(ts,
+              seq(rng[j, ]$end, rng[j + 1, ]$start, by = "2 hours"))
 
     }
 
-      ts <- ts[-1]
+    for (k in 1:nrow(rng)) {
 
-      }
+      ts <- c(ts,
+              seq(rng[k, ]$start, rng[k, ]$end, by = "2 hours"))
+
+    }
+
+
+  } else {
+
+    ts <- c(ts,
+            seq(rng$start, rng$end, by = "2 hours"))
+
+  }
+
+  ts <- ts[-1]
+
+  all_ts <- sort(unique(ts))
 
   coord <- mule_2h %>%
-    filter(deploy_ID == who)
+    filter(deploy_ID == stringr::word(who, 1, 2, "_") &
+             t_ >= min(rng$start) &
+             t_ <= max(rng$end)) %>%
+    mutate(streak_ID = who)
 
-  all_ts <- sort(unique(c(coord$t_, ts)))
-
-  res <- data.frame(deploy_ID = who,
+  res <- data.frame(streak_ID = who,
                     t_ = all_ts) %>%
-    left_join(coord, by = c("deploy_ID", "t_"))
+    left_join(coord, by = c("streak_ID", "t_"))
 
   mule_nas <- rbind(mule_nas, res)
 
@@ -310,53 +375,65 @@ mule_nas <- mule_nas[-1, ]
 
 if (save) {saveRDS(mule_nas, "output/mule-deer_regularized-2h.rds")}
 
-# Check that daylight savings have been correctly accounted for
-# test1 <- mule_2h %>% filter(deploy_ID == "MD18M0090_42088")
-# test2 <- mule_nas %>% filter(deploy_ID == "MD18M0090_42088")
+# Checks ####
 
-# Remove gaps > 1 day ####
+# Check that every lag between locations is 2 hours
+# (excluding the first location of each burst which is necessarily NA)
+mule_nas %>%
+  group_by(streak_ID) %>%
+  arrange(t_) %>%
+  mutate(lag_ = t_ - lag(t_)) %>%
+  group_by(streak_ID) %>%
+  slice(-1) %>%
+  ungroup() %>%
+  group_by(lag_) %>%
+  tally()
 
+# Remove streaks of missing fixes > 1 day ####
+
+# For each streak ID and date, do we have at least 1 fix on that day?
 test <- mule_nas %>%
   mutate(date = as_date(t_),
          fix = ifelse(is.na(x_), FALSE, TRUE)) %>%
-  group_by(deploy_ID, date, fix) %>%
+  group_by(streak_ID, date, fix) %>%
   tally() %>%
   ungroup() %>%
   mutate(have_data = case_when(
     !fix & n == 12 ~ FALSE,
     TRUE ~ TRUE
   )) %>%
-  distinct(deploy_ID, date, have_data)
+  distinct(streak_ID, date, have_data)
 
-first_streak <- test %>%
-  group_by(deploy_ID) %>%
+# Flag first consecutive run for each streak ID
+first_run <- test %>%
+  group_by(streak_ID) %>%
   arrange(date) %>%
   slice(1) %>%
-  mutate(streak = 1)
+  mutate(run = 1)
 
 test <- test %>%
-  left_join(first_streak)
+  left_join(first_run)
 
 for (r in 2:nrow(test)) {
 
   print(r)
 
-  test[r, ]$streak <- case_when(
-    test[r, ]$streak == 1 ~ test[r, ]$streak,
-    test[r, ]$have_data & test[r - 1, ]$have_data ~ test[r - 1, ]$streak,
-    !test[r, ]$have_data ~ test[r - 1, ]$streak,
-    test[r, ]$have_data & !test[r - 1, ]$have_data ~ test[r - 1, ]$streak + 1
+  test[r, ]$run <- case_when(
+    test[r, ]$run == 1 ~ test[r, ]$run,
+    test[r, ]$have_data & test[r - 1, ]$have_data ~ test[r - 1, ]$run,
+    !test[r, ]$have_data ~ test[r - 1, ]$run,
+    test[r, ]$have_data & !test[r - 1, ]$have_data ~ test[r - 1, ]$run + 1
   )
 
   }
 
 mule_nas <- mule_nas %>%
   mutate(date = as_date(t_)) %>%
-  left_join(test, by = c("deploy_ID", "date"))
+  left_join(test, by = c("streak_ID", "date"))
 
-# Assign burst by combining deployment ID and streak
-mule_streaks <- mule_nas %>%
-  mutate(burst = paste0(deploy_ID, "_", streak)) %>%
+# Assign burst by combining streak ID and run
+mule_runs <- mule_nas %>%
+  mutate(burst = paste0(streak_ID, "_", run)) %>%
   # Get rid of days without data
   filter(have_data)
 
@@ -364,16 +441,19 @@ mule_streaks <- mule_nas %>%
 ind_info <- mule %>%
   dplyr::select(uniqueID, species, sex, captureUnit, uniqueID_Range) %>%
   distinct() %>%
-  filter(uniqueID %in% unique(mule_streaks$uniqueID))
+  filter(uniqueID %in% unique(mule_runs$uniqueID)) %>%
+  # this individual is duplicated because one time the sex is F, one time it is
+  # unknown. Get rid of the unknown
+  slice(-308)
 
-mule_final <- mule_streaks %>%
+mule_final <- mule_runs %>%
   dplyr::select(uniqueID, burst, deploy_ID, t_, x_, y_,
          latitude, longitude,
          mortality, currentAge, currentCohort) %>%
   left_join(ind_info)
 
 # Check
-nrow(mule_streaks) == nrow(mule_final)
+nrow(mule_runs) == nrow(mule_final)
 
 # Get rid of short streaks ####
 
@@ -383,7 +463,7 @@ keepers <- mule_final %>%
   group_by(burst) %>%
   tally() %>%
   arrange(n) %>%
-  filter(n >= 10) %>%
+  filter(n >= 50) %>%
   pull(burst)
 
 mule_final <- mule_final %>%
@@ -392,6 +472,20 @@ mule_final <- mule_final %>%
 # Save ####
 
 if (save) {saveRDS(mule_final, "output/mule-deer_regularized-2h_with-NAs.rds")}
+
+# Checks ####
+
+# Check that every lag between locations is 2 hours
+# (excluding the first location of each burst which is necessarily NA)
+mule_final %>%
+  group_by(burst) %>%
+  arrange(t_) %>%
+  mutate(lag_ = t_ - lag(t_)) %>%
+  group_by(burst) %>%
+  slice(-1) %>%
+  ungroup() %>%
+  group_by(lag_) %>%
+  tally()
 
 # Map KDE + CWD occurrences ####
 

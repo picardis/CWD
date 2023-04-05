@@ -32,6 +32,8 @@ hist(mule$step)
 
 source("FUN_gamma_pars.R")
 
+# Three states
+
 # Short state
 test1 <- gamma_pars(mean = 10, sd = 5)
 # Intermediate state
@@ -43,6 +45,16 @@ hist(mule$step, breaks = 100, freq = FALSE)
 lines(dgamma(x = c(0:7000), shape = test1[2], rate = test1[1]), col = "red")
 lines(dgamma(x = c(0:7000), shape = test2[2], rate = test2[1]), col = "green")
 lines(dgamma(x = c(0:7000), shape = test3[2], rate = test3[1]), col = "blue")
+
+# Two states
+# Short state
+test1 <- gamma_pars(mean = 30, sd = 15)
+# Long state
+test2 <- gamma_pars(mean = 500, sd = 250)
+
+hist(mule$step, breaks = 100, freq = FALSE)
+lines(dgamma(x = c(0:7000), shape = test1[2], rate = test1[1]), col = "blue")
+lines(dgamma(x = c(0:7000), shape = test2[2], rate = test2[1]), col = "green")
 
 # 3-state HMM ####
 
@@ -64,4 +76,34 @@ system.time({
                                      concentration_3 = 0.99)))
   })
 
-saveRDS(hmm1, "output/HMM1_2023-03-28.rds")
+saveRDS(hmm1, "output/HMM1_2023-03-29.rds")
+
+mule$state3 <- viterbi(hmm1)
+
+mule %>%
+  ggplot(aes(x = factor(lubridate::month(t_)), fill = factor(state3), group = factor(state3))) +
+  geom_bar()
+
+# 2-state HMM ####
+
+system.time({
+  hmm2 <- fitHMM(data = mule,
+                 nbStates = 2,
+                 dist = list(step = "gamma", angle = "vm"),
+                 Par0 = list(step = c(mean_1 = 30,
+                                      mean_2 = 500,
+                                      sd_1 = 15,
+                                      sd_2 = 250,
+                                      zeromass_1 = 0.5,
+                                      zeromass_2 = 0.01),
+                             angle = c(concentration_1 = 0.1,
+                                       concentration_2 = 0.9)))
+})
+
+saveRDS(hmm2, "output/HMM2_2023-03-30.rds")
+
+mule$state <- viterbi(hmm2)
+
+mule %>%
+  ggplot(aes(x = factor(lubridate::month(t_)), fill = factor(state), group = factor(state))) +
+  geom_bar()
