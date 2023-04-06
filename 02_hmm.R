@@ -23,6 +23,19 @@ saveRDS(mule, "output/mule-deer_HMM-prep.rds")
 
 mule <- readRDS("output/mule-deer_HMM-prep.rds")
 
+# Re-filter again based on sample size. Not only x and y, but also angle
+# needs to not be NA.
+keepers <- mule %>%
+  filter(!is.na(longitude) & !is.na(latitude) & !is.na(angle)) %>%
+  group_by(ID) %>%
+  tally() %>%
+  arrange(n) %>%
+  filter(n >= 100) %>%
+  pull(ID)
+
+mule <- mule %>%
+  filter(ID %in% keepers)
+
 # Explore steps and angles ####
 
 summary(mule$step)
@@ -76,13 +89,14 @@ system.time({
                                      concentration_3 = 0.99)))
   })
 
-saveRDS(hmm1, "output/HMM1_2023-03-29.rds")
+saveRDS(hmm1, "output/HMM1_2023-04-06.rds")
 
 mule$state3 <- viterbi(hmm1)
 
 mule %>%
   ggplot(aes(x = factor(lubridate::month(t_)), fill = factor(state3), group = factor(state3))) +
-  geom_bar()
+  geom_bar() +
+  labs(group = "State", fill = "State", y = "Frequency", x = "Month")
 
 # 2-state HMM ####
 
@@ -100,10 +114,49 @@ system.time({
                                        concentration_2 = 0.9)))
 })
 
-saveRDS(hmm2, "output/HMM2_2023-03-30.rds")
+saveRDS(hmm2, "output/HMM2_2023-04-06.rds")
 
 mule$state <- viterbi(hmm2)
 
 mule %>%
   ggplot(aes(x = factor(lubridate::month(t_)), fill = factor(state), group = factor(state))) +
-  geom_bar()
+  geom_bar() +
+  labs(fill = "State", y = "Frequency", x = "Month")
+
+# WHAT THE HELL IS WRONG?
+
+mule %>%
+  ggplot(aes(x = step)) +
+  geom_histogram() +
+  facet_wrap(~ lubridate::month(t_))
+
+mule %>%
+  ggplot(aes(x = factor(lubridate::month(t_)), fill = factor(ID), group = factor(ID))) +
+  geom_bar() +
+  labs(fill = "Burst", y = "Frequency", x = "Month") +
+  theme(legend.position = "none")
+
+mule %>%
+  mutate(na = is.na(longitude) & is.na(latitude)) %>%
+  ggplot(aes(x = factor(lubridate::month(t_)), fill = factor(na), group = factor(na))) +
+  geom_bar() +
+  labs(fill = "Missing data", y = "Frequency", x = "Month")
+
+mule_amt <- mule %>%
+  filter(!is.na(longitude)) %>%
+  nest(trk = -ID) %>%
+  mutate(trk = lapply(trk, function(x) {
+    x %>%
+      amt::make_track(.x = longitude, .y = latitude, .t = t_, crs = 4326)
+  }))
+
+class(mule_amt$trk[[1]])
+
+?amt::inspect
+
+amt::inspect(mule_amt$trk[[1]], cluster = FALSE, popup = mule_amt$trk[[1]]$t_)
+
+mule %>%
+  group_by(ID, lubridate::month(t_)) %>%
+  tally() %>%
+  arrange(n)
