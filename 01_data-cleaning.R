@@ -99,8 +99,6 @@ mule_sf <- mule %>%
   dplyr::select(uniqueID, deploy_ID, latitude, longitude, timestamp, study_area) %>%
   st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
 
-st_write(mule_sf, "output/mule-deer-raw.shp")
-
 # Add UTM coordinates ####
 
 mule_utm <- st_transform(mule_sf, crs = 32612)
