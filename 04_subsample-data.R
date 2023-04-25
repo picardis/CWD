@@ -189,7 +189,7 @@ unc <- data.frame(n = rle(locs$uncertainty)[[1]],
                   value = rle(locs$uncertainty)[[2]]) %>%
   filter(value == "Uncertainty")
 
-# Clean up streaks of heavily interpolated steps ####
+# Add flag for data gaps ####
 
 # Start and end date of each deployment
 start_end <- locs %>%
@@ -225,10 +225,11 @@ for (i in 1:nrow(start_end)) {
     ))
 }
 
+# Split bursts at data gaps ####
+
 locs_no_gaps <- locs_flag %>%
   filter(!data_gap)
 
-# Now assign a new burst after each gap
 locs_resample <- locs_no_gaps %>%
   nest(trk = -ID) %>%
   mutate(trk = lapply(trk, function(x) {
@@ -279,3 +280,38 @@ locs_ctmm_no_gaps <- locs_ctmm_no_gaps %>%
 # Save ####
 
 if (save) {saveRDS(locs_ctmm_no_gaps, "output/mule-deer_regularized-12h_CTMM_no-gaps.rds")}
+
+# Insert NA coordinates in data gaps ####
+
+locs_ctmm_nas <- locs_flag %>%
+  mutate(x_ = case_when(
+    data_gap == TRUE ~ NA_real_,
+    data_gap == FALSE ~ mu.x
+  ),
+  y_ = case_when(
+    data_gap == TRUE ~ NA_real_,
+    data_gap == FALSE ~ mu.y
+  ))
+
+# Bring timestamps back to Mountain time ####
+
+locs_ctmm_nas <- locs_ctmm_nas %>%
+  mutate(t_ = with_tz(timestamp_utc, tzone = "America/Denver"))
+
+# Discard short bursts ####
+
+# Count only points where coordinates are not NA
+keepers <- locs_ctmm_nas %>%
+  filter(!is.na(x_) & !is.na(y_)) %>%
+  group_by(ID) %>%
+  tally() %>%
+  arrange(n) %>%
+  filter(n >= 10) %>%
+  pull(ID)
+
+locs_ctmm_nas <- locs_ctmm_nas %>%
+  filter(ID %in% keepers)
+
+# Save ####
+
+if (save) {saveRDS(locs_ctmm_nas, "output/mule-deer_regularized-12h_CTMM_NA-gaps.rds")}

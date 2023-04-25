@@ -5,7 +5,7 @@ library(momentuHMM)
 
 # Load data ####
 
-mule <- readRDS("output/mule-deer_regularized-12h_CTMM_no-gaps.rds")
+mule <- readRDS("output/mule-deer_regularized-12h_CTMM_NA-gaps.rds")
 
 # Format for momentuHMM ####
 
@@ -18,9 +18,9 @@ mule <- prepData(mule,
                  type = "UTM")
 
 # Save
-saveRDS(mule, "output/mule-deer_HMM-prep_12h_no-gaps.rds")
+saveRDS(mule, "output/mule-deer_HMM-prep_12h_NA-gaps.rds")
 
-mule <- readRDS("output/mule-deer_HMM-prep_12h_no-gaps.rds")
+mule <- readRDS("output/mule-deer_HMM-prep_12h_NA-gaps.rds")
 
 # Explore steps and angles ####
 
@@ -60,8 +60,6 @@ system.time({
                                        concentration_2 = 0.99)))
 })
 
-saveRDS(hmm2, "output/HMM2_12h_2023-04-25.rds")
+saveRDS(hmm2, "output/HMM2_12h_2023-04-25_NAs.rds")
 beepr::beep(2)
 
-# One more thing to try: instead of splitting bursts each time there is a gap,
-# insert NA coordinates in gaps and leave tracks continuous
