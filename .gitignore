@@ -5,3 +5,5 @@
 input/**
 output/**
 .Rproj.user
+!output/mule-deer_regularized-12h_CTMM_with-viterbi.rds
+!output/mule-deer_regularized-12h_CTMM_with-viterbi_README.txt
