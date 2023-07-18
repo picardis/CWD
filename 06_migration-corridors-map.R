@@ -236,4 +236,5 @@ ggplot() +
 ggsave("output/map_mig-vs-res_1km_HMM3_2023-05-10.tiff",
        height = 8, width = 7, dpi = 300, compression = "lzw")
 
-writeRaster(bin_ras, "output/mig-vs-res_1km_HMM3_2023-05-10.tiff")
+writeRaster(bin_ras, "output/mig-vs-res_1km_HMM3_2023-05-10.tiff",
+            overwrite = TRUE)
