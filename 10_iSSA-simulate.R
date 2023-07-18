@@ -68,7 +68,7 @@ sim_mod_spring <- make_issf_model(coefs = coefs_vec,
 
 ## Simulate ####
 
-source("scale-and-center.R")
+source("FUN_scale-and-center.R")
 
 # First generate a redistribution kernel
 
