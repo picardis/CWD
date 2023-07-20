@@ -340,7 +340,7 @@ sa <- as.polygons(ext_mig, crs = "epsg:32612")
 
 # Looks good but takes forever to plot
 
-# Load and process covariates ####
+# Load and process static covariates ####
 
 ## Land cover ####
 
@@ -546,7 +546,7 @@ poly_rast <- rasterize(poly_terra, elev, field = "poly_ID")
 writeRaster(poly_rast, "output/processed_layers/road_polygons.tif",
             overwrite = TRUE)
 
-# Intersect covariates ####
+# Intersect static covariates ####
 
 elev <- rast("output/processed_layers/elevation_utm.tiff")
 cliffs <- rast("output/processed_layers/cliffs.tif")
@@ -574,3 +574,70 @@ mig_fall_amt <- mig_fall_amt %>%
 
 saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-covs.rds")
 saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-covs.rds")
+
+# Load and process dynamic covariates ####
+
+## NDVI ####
+
+# Downloaded using script MODIStsp.R
+
+ndvi_files <- list.files("output/processed_layers/MODIS/VI_16Days_250m_v6/NDVI",
+                         full.names = TRUE)
+
+ndvi <- rast(ndvi_files)
+
+# plot(ndvi$MOD13A1_NDVI_2016_001)
+
+# test <- ndvi$MOD13A1_NDVI_2016_129
+# values(test) <- ifelse(values(ndvi$MOD13A1_NDVI_2016_145) < 0,
+#                        NA, values(ndvi$MOD13A1_NDVI_2016_145))
+#
+# plot(elev, col = rev(grDevices::gray.colors(50)))
+# plot(test, alpha = 0.3, add = T)
+#
+# hist(values(ndvi$MOD13A1_NDVI_2016_145))
+
+# It looks like negative values are invalid (snow or open water).
+# I'll replace every pixel that is < 0 with 0.
+
+ndvi_pos <- ndvi
+values(ndvi_pos) <- ifelse(values(ndvi_pos) < 0,
+                           0, values(ndvi_pos))
+
+# Add z column (timestamp)
+
+# Extract year and julian day from name of layer
+y <- stringr::word(names(ndvi_pos), 3, 3, "_")
+j <- as.numeric(stringr::word(names(ndvi_pos), 4, 4, "_"))
+# Transform julian day to day of year
+doy <- stringr::word(as_date(j, origin = "2015-12-31"), 2, 3, "-")
+# Add the correct year
+z <- ymd(paste0(y, "-", doy))
+# Add to SpatRaster
+time(ndvi_pos) <- z
+
+writeRaster(ndvi_pos, "output/processed_layers/NDVI.tiff", overwrite = TRUE)
+
+# Intersect dynamic covariates ####
+
+source("FUN_ndvi.R")
+
+system.time({
+  mig_spring_amt <- mig_spring_amt %>%
+  mutate(rsteps = lapply(rsteps, FUN = function (x) {
+    x %>%
+      # There is something weird happening with extract_covariates_var_time.
+      # It attaches NA values when the values are not NA.
+      # See troubleshooting example in FUN_ndvi.R
+      # Which is why I'm using a custom function instead
+      # extract_covariates_var_time(ndvi_pos,
+      #                             where = "both",
+      #                             when = "any",
+      #                             max_time = days(16)) %>%
+      # rename(ndvi_start = time_var_covar_start,
+      #        ndvi_end = time_var_covar_end)
+      attach_ndvi(ndvi = ndvi)
+  }))
+})
+
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs.rds")

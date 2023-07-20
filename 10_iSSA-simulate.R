@@ -14,9 +14,9 @@ mig_spring_amt <- readRDS("output/mig_spring_100rsteps.rds")
 
 # Load model ####
 
-issa_spring <- readRDS("output/iSSA_spring_2023-07-17.rds")
+issa_spring <- readRDS("output/iSSA_spring_2023-07-20.rds")
 
-# Recreate raster stack ####
+# Recreate static raster stack ####
 
 elev <- rast("output/processed_layers/elevation_utm.tiff")
 cliffs <- rast("output/processed_layers/cliffs.tif")
@@ -27,6 +27,10 @@ land_cover <- rast("output/processed_layers/land_cover_utm.tiff") %>%
 
 rasts <- rast(list(land_cover, elev, cliffs, dist_to_roads, road_poly))
 names(rasts) <- c("land_cover", "elev", "cliffs", "dist_to_roads", "road_poly")
+
+# NDVI ####
+
+ndvi <- rast("output/processed_layers/NDVI.tiff")
 
 # Loads means and sds to scale and center ####
 
@@ -121,6 +125,10 @@ who <- 1
 
 ind <- issa_spring$deploy_ID[who]
 
+# Format model output
+issa_spring <- issa_spring %>%
+  mutate(coef = map(issa, function(x) broom::tidy(x$model)))
+
 # Get individual coefficients
 coefs <- issa_spring %>%
   select(-issa) %>%
@@ -144,6 +152,12 @@ k1_ind <- redistribution_kernel(x = issa_spring$issa[[who]],
                             fun = function (xy, map) {
                               xy %>%
                                 extract_covariates(map, where = "both") %>%
+                                extract_covariates_var_time(ndvi,
+                                                            where = "both",
+                                                            when = "any",
+                                                            max_time = days(8)) %>%
+                                rename(ndvi_start = time_var_covar_start,
+                                       ndvi_end = time_var_covar_end) %>%
                                 mutate(log_sl_ = log(sl_),
                                        cos_ta_ = cos(ta_),
                                        dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%

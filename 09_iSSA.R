@@ -26,7 +26,8 @@ mig_fall_amt <- mig_fall_amt %>%
 
 # Scale and center ####
 
-vars <- c("elev_start", "elev_end", "dist_to_roads_end_log")
+vars <- c("elev_start", "elev_end", "dist_to_roads_end_log",
+          "ndvi_start", "ndvi_end")
 
 means <- mig_spring_amt %>%
   dplyr::select(deploy_ID, rsteps) %>%
@@ -64,7 +65,11 @@ mig_spring_amt <- mig_spring_amt %>%
              elev_end_sc = (elev_end -
                               means$elev_end)/sds$elev_end,
              dist_to_roads_end_log_sc = (dist_to_roads_end_log -
-               means$dist_to_roads_end_log)/sds$dist_to_roads_end_log)
+               means$dist_to_roads_end_log)/sds$dist_to_roads_end_log,
+             ndvi_start_sc = (ndvi_start -
+                                means$ndvi_start)/sds$ndvi_start,
+             ndvi_end_sc = (ndvi_end -
+                                means$ndvi_end)/sds$ndvi_end)
   }))
 
 mig_fall_amt <- mig_fall_amt %>%
@@ -149,6 +154,8 @@ issa_spring <- mig_spring_amt %>%
                           dist_to_roads_end_log_sc +
                           #I(road_poly_start != road_poly_end) +
                           #cliffs_end +
+                          I(ndvi_end_sc - ndvi_start_sc) +
+                          ndvi_start_sc : I(ndvi_end_sc - ndvi_start_sc) +
                           sl_ +
                           log_sl_ +
                           cos_ta_ +
@@ -157,7 +164,7 @@ issa_spring <- mig_spring_amt %>%
   })) %>%
   select(deploy_ID, issa)
 
-saveRDS(issa_spring, "output/iSSA_spring_2023-07-17.rds")
+saveRDS(issa_spring, "output/iSSA_spring_2023-07-20.rds")
 
 # Look at elevation gain parameters
 
@@ -240,7 +247,7 @@ prediction_data <- function(elev_end = means$elev_end,
 }
 
 # Function to scale values so I can define scenarios on interpretable values
-source("scale-and-center.R")
+source("FUN_scale-and-center.R")
 
 # Scenario 1: predict selection for a 500m elevation gain starting at 2500m
 issa_spring <- issa_spring %>%
