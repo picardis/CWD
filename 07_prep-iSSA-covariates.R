@@ -147,28 +147,10 @@ for (i in unique(fall_mig$ID)) {
 
 }
 
-# Drop bursts with not enough data ####
-
-keepers_spring <- spring_mig_data %>%
-  group_by(burst_) %>%
-  tally() %>%
-  arrange(n) %>%
-#  View() %>%
-  filter(n >= 20) %>%
-  pull(deploy_ID)
-
-keepers_fall <- fall_mig_data %>%
-  group_by(deploy_ID) %>%
-  tally() %>%
-  arrange(n) %>%
-  #  View() %>%
-  filter(n >= 20) %>%
-  pull(deploy_ID)
-
 # Format for use in amt ####
 
 mig_spring_amt <- spring_mig_data %>%
-  filter(!is.na(x_) & !is.na(y_) & deploy_ID %in% keepers_spring) %>%
+  filter(!is.na(x_) & !is.na(y_)) %>%
   nest(cols = -deploy_ID) %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
@@ -186,7 +168,7 @@ mig_spring_amt <- spring_mig_data %>%
 any(unlist(lapply(mig_spring_amt$steps, function(x) {unique(x$dt_)})) != 2)
 
 mig_fall_amt <- fall_mig_data %>%
-  filter(!is.na(x_) & !is.na(y_) & deploy_ID %in% keepers_fall) %>%
+  filter(!is.na(x_) & !is.na(y_)) %>%
   nest(cols = -deploy_ID) %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
@@ -203,6 +185,24 @@ mig_fall_amt <- fall_mig_data %>%
 # Check that all steps are at 2h resolution (FALSE means they all are)
 any(unlist(lapply(mig_fall_amt$steps, function(x) {unique(x$dt_)})) != 2)
 
+# Remove IDs with few steps and steps with no turn angle ####
+
+mig_spring_amt <- mig_spring_amt %>%
+  mutate(steps = lapply(steps, function(x) {
+    x %>%
+      filter(!is.na(ta_))
+  }),
+  n_steps = map_dbl(steps, nrow)) %>%
+  filter(n_steps >= 20)
+
+mig_fall_amt <- mig_fall_amt %>%
+  mutate(steps = lapply(steps, function(x) {
+    x %>%
+      filter(!is.na(ta_))
+  }),
+  n_steps = map_dbl(steps, nrow)) %>%
+  filter(n_steps >= 20)
+
 # Fit steps and angle distributions ####
 
 # Steps
@@ -211,7 +211,7 @@ any(unlist(lapply(mig_fall_amt$steps, function(x) {unique(x$dt_)})) != 2)
 sl_spring <- mig_spring_amt %>%
   dplyr::select(deploy_ID, steps) %>%
   unnest(cols = steps) %>%
-  filter(!is.na(sl_)) %>%
+  filter(!is.na(sl_) & sl_ > 0) %>%
   pull(sl_)
 
 plot(density(sl_spring))
@@ -222,7 +222,7 @@ sl_distr_spring <- fit_distr(sl_spring, dist_name = "gamma")
 sl_fall <- mig_fall_amt %>%
   dplyr::select(deploy_ID, steps) %>%
   unnest(cols = steps) %>%
-  filter(!is.na(sl_)) %>%
+  filter(!is.na(sl_) & sl_ > 0) %>%
   pull(sl_)
 
 plot(density(sl_fall))
@@ -269,6 +269,7 @@ mig_fall_amt <- mig_fall_amt %>%
                        ta_distr = ta_distr_fall)
   }))
 
+
 saveRDS(mig_spring_amt, "output/mig_spring_100rsteps.rds")
 saveRDS(mig_fall_amt, "output/mig_fall_100rsteps.rds")
 
@@ -279,9 +280,8 @@ saveRDS(mig_fall_amt, "output/mig_fall_100rsteps.rds")
 minxs <- min(c(
   unlist(lapply(mig_spring_amt$rsteps, FUN = function(x) {
   xs <- c(x$x1_, x$x2_)
-  return(xs)
-  # minx <- min(xs)
-  # return(minx)
+  minx <- min(xs)
+  return(minx)
 })),
 unlist(lapply(mig_fall_amt$rsteps, FUN = function(x) {
   xs <- c(x$x1_, x$x2_)
