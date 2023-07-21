@@ -121,6 +121,9 @@ points(dat$x_, dat$y_, col = "red", pch = 16)
 
 # Simulate from individual models ####
 
+source("FUN_scale-and-center.R")
+source("FUN_NDVI.R")
+
 who <- 1
 
 ind <- issa_spring$deploy_ID[who]
@@ -152,23 +155,29 @@ k1_ind <- redistribution_kernel(x = issa_spring$issa[[who]],
                             fun = function (xy, map) {
                               xy %>%
                                 extract_covariates(map, where = "both") %>%
-                                extract_covariates_var_time(ndvi,
-                                                            where = "both",
-                                                            when = "any",
-                                                            max_time = days(8)) %>%
-                                rename(ndvi_start = time_var_covar_start,
-                                       ndvi_end = time_var_covar_end) %>%
+                                attach_ndvi(ndvi = ndvi) %>%
                                 mutate(log_sl_ = log(sl_),
                                        cos_ta_ = cos(ta_),
-                                       dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
+                                       dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
+                                       ndvi_start = case_when(
+                                         land_cover_start == "Open Water" ~ 0,
+                                         TRUE ~ ndvi_start
+                                       ),
+                                       ndvi_end = case_when(
+                                         land_cover_end == "Open Water" ~ 0,
+                                         TRUE ~ ndvi_end
+                                       )) %>%
                                 scale_data(means = means, sds = sds)
                             })
 
 # How many tracks to simulate?
-n <- 10
+n <- 5
 
 # Simulate
-sim <- replicate(n, simulate_path(k1_ind, n = 30), simplify = FALSE)
+sim <- lapply(1:n, function(i){
+  cat("Iteration", i, "of", n, "           \n")
+  return(simulate_path(k1_ind, n = nrow(mig_spring_amt$trk[[who]])))
+  })
 
 ## Plot ####
 
@@ -176,11 +185,16 @@ sim <- replicate(n, simulate_path(k1_ind, n = 30), simplify = FALSE)
 sim <- bind_rows(sim, .id = "iter")
 
 # Get real data for n steps
-dat <- mig_spring_amt$trk[[who]][1:30, ]
+dat <- mig_spring_amt$trk[[who]]
+
+# xs
+xs <- c(sim$x_, dat$x_)
+#ys
+ys <- c(sim$y_, dat$y_)
 
 plot(elev,
-     xlim = c(min(sim$x_) - 5000, max(sim$x_) + 5000),
-     ylim = c(min(sim$y_) - 5000, max(sim$y_) + 5000))
+     xlim = c(min(xs) - 2000, max(xs) + 2000),
+     ylim = c(min(ys) - 2000, max(ys) + 2000))
 for (i in unique(sim$iter)) {
   lines(sim[sim$iter == i, ]$x_, sim[sim$iter == i, ]$y_)
   points(sim[sim$iter == i, ]$x_, sim[sim$iter == i, ]$y_, pch = i)

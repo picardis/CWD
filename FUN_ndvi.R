@@ -1,9 +1,16 @@
-# testing_data <- readRDS("output/mig_spring_100rsteps_with-dyn-covs.rds") %>%
-#   unnest(rsteps) %>%
-#   filter(is.na(ndvi_end)) %>%
-#   slice(2:10) %>%
-#   nest(rsteps = -deploy_ID)
+# testing_data <- mig_spring_amt[mig_spring_amt$deploy_ID == "MD17F0171_39994", ]$rsteps[[1]] %>%
+#   select(-ndvi_start, -ndvi_end)
 #
+# # testing_data <- readRDS("output/mig_spring_100rsteps_with-dyn-covs.rds") %>%
+# #   unnest(rsteps) %>%
+# #   filter(is.na(ndvi_end)) %>%
+# #   slice(2:10) %>%
+# #   nest(rsteps = -deploy_ID)
+#
+# test_ndvi <- ndvi$MOD13Q1_NDVI_2019_081
+#
+# extract(test_ndvi, testing_data$rsteps[[1]][, c("x2_", "y2_")])
+
 # steps <- testing_data$rsteps[[1]]
 # class(steps) <- class(old_data$rsteps[[1]])
 #

@@ -147,10 +147,10 @@ for (i in unique(fall_mig$ID)) {
 
 }
 
-# Drop IDs with not enough data ####
+# Drop bursts with not enough data ####
 
 keepers_spring <- spring_mig_data %>%
-  group_by(deploy_ID) %>%
+  group_by(burst_) %>%
   tally() %>%
   arrange(n) %>%
 #  View() %>%
@@ -172,6 +172,7 @@ mig_spring_amt <- spring_mig_data %>%
   nest(cols = -deploy_ID) %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
+      arrange(t_) %>%
       make_track(.x = x_, .y = y_, .t = t_) %>%
       track_resample(rate = hours(2))
   })) %>%
@@ -189,6 +190,7 @@ mig_fall_amt <- fall_mig_data %>%
   nest(cols = -deploy_ID) %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
+      arrange(t_) %>%
       make_track(.x = x_, .y = y_, .t = t_) %>%
       track_resample(rate = hours(2))
   })) %>%
@@ -277,8 +279,9 @@ saveRDS(mig_fall_amt, "output/mig_fall_100rsteps.rds")
 minxs <- min(c(
   unlist(lapply(mig_spring_amt$rsteps, FUN = function(x) {
   xs <- c(x$x1_, x$x2_)
-  minx <- min(xs)
-  return(minx)
+  return(xs)
+  # minx <- min(xs)
+  # return(minx)
 })),
 unlist(lapply(mig_fall_amt$rsteps, FUN = function(x) {
   xs <- c(x$x1_, x$x2_)
@@ -616,28 +619,35 @@ z <- ymd(paste0(y, "-", doy))
 # Add to SpatRaster
 time(ndvi_pos) <- z
 
-writeRaster(ndvi_pos, "output/processed_layers/NDVI.tiff", overwrite = TRUE)
+ndvi <- ndvi_pos
+writeRaster(ndvi, "output/processed_layers/NDVI.tiff", overwrite = TRUE)
 
 # Intersect dynamic covariates ####
 
 source("FUN_ndvi.R")
 
-system.time({
-  mig_spring_amt <- mig_spring_amt %>%
+mig_spring_amt <- mig_spring_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function (x) {
     x %>%
       # There is something weird happening with extract_covariates_var_time.
       # It attaches NA values when the values are not NA.
       # See troubleshooting example in FUN_ndvi.R
       # Which is why I'm using a custom function instead
-      # extract_covariates_var_time(ndvi_pos,
+      # extract_covariates_var_time(ndvi,
       #                             where = "both",
-      #                             when = "any",
-      #                             max_time = days(16)) %>%
+      #                             when = "before",
+      #                             max_time = days(17)) %>%
       # rename(ndvi_start = time_var_covar_start,
       #        ndvi_end = time_var_covar_end)
-      attach_ndvi(ndvi = ndvi)
+      attach_ndvi(ndvi = ndvi) %>%
+      mutate(ndvi_start = case_when(
+        land_cover_start == "Open Water" ~ 0,
+        TRUE ~ ndvi_start
+      ),
+      ndvi_end = case_when(
+        land_cover_end == "Open Water" ~ 0,
+        TRUE ~ ndvi_end
+      ))
   }))
-})
 
 saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs.rds")

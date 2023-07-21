@@ -14,14 +14,16 @@ mig_spring_amt <- mig_spring_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
     x %>%
       mutate(log_sl_ = log(sl_),
-             cos_ta_ = cos(ta_))
+             cos_ta_ = cos(ta_),
+             burst_step_id_ = paste0(burst_, "_", step_id_))
   }))
 
 mig_fall_amt <- mig_fall_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
     x %>%
       mutate(log_sl_ = log(sl_),
-             cos_ta_ = cos(ta_))
+             cos_ta_ = cos(ta_),
+             burst_step_id_ = paste0(burst_, "_", step_id_))
   }))
 
 # Scale and center ####
@@ -159,7 +161,7 @@ issa_spring <- mig_spring_amt %>%
                           sl_ +
                           log_sl_ +
                           cos_ta_ +
-                          strata(step_id_),
+                          strata(burst_step_id_),
                         model = TRUE))
   })) %>%
   select(deploy_ID, issa)
@@ -195,7 +197,7 @@ issa_fall <- mig_fall_amt %>%
                           sl_ +
                           log_sl_ +
                           cos_ta_ +
-                          strata(step_id_),
+                          strata(burst_step_id_),
                         model = TRUE))
   })) %>%
   select(deploy_ID, issa)
