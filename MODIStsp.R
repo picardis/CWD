@@ -20,6 +20,13 @@ MODIStsp_get_prodlayers("M*D13Q1")$quality_bandnames
 
 MODIStsp_get_prodlayers("M*D13Q1")$indexes_bandnames
 
+# Snow "Snow_Cov_Daily_500m (M*D10A1)"
+
+MODIStsp_get_prodlayers("M*D10A1")$bandnames
+
+# Snow_Cov_8-Day_500m (M*D10_A2)
+
+MODIStsp_get_prodlayers("M*D10_A2")$bandnames
 
 # # CRS conversion ####
 #
@@ -79,3 +86,47 @@ MODIStsp(gui             = FALSE,
 )
 
 ## Snow ####
+
+# Daily
+MODIStsp(gui             = FALSE,
+         out_folder      = 'output/processed_layers/MODIS',
+         out_folder_mod  = 'output/processed_layers/MODIS',
+         selprod         = 'Snow_Cov_Daily_500m (M*D10A1)',
+         bandsel         = c('SC', 'NDSI'),
+         sensor          = 'Terra',
+         user            = 'simona.picardi' , # your username for NASA http server
+         password        = '1990AserejeNASA!',  # your password for NASA http server
+         start_date      = '2016.01.01',
+         end_date        = '2021.01.12',
+         spatmeth        = 'file',
+         spafile         = 'output/processed_layers/elevation.tiff',
+         out_format      = 'GTiff',
+         compress        = 'LZW',
+         out_projsel     = 'User Defined',
+         output_proj     = 'epsg:32612',
+         verbose         = TRUE,
+         delete_hdf      = TRUE,
+         parallel        = TRUE
+)
+
+# 8-day
+MODIStsp(gui             = FALSE,
+         out_folder      = 'output/processed_layers/MODIS',
+         out_folder_mod  = 'output/processed_layers/MODIS',
+         selprod         = 'Snow_Cov_8-Day_500m (M*D10_A2)',
+         bandsel         = 'MAX_SNW',
+         sensor          = 'Terra',
+         user            = 'simona.picardi' , # your username for NASA http server
+         password        = '1990AserejeNASA!',  # your password for NASA http server
+         start_date      = '2016.01.01',
+         end_date        = '2021.01.12',
+         spatmeth        = 'file',
+         spafile         = 'output/processed_layers/elevation.tiff',
+         out_format      = 'GTiff',
+         compress        = 'LZW',
+         out_projsel     = 'User Defined',
+         output_proj     = 'epsg:32612',
+         verbose         = TRUE,
+         delete_hdf      = TRUE,
+         parallel        = TRUE
+)

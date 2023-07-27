@@ -5,8 +5,8 @@ library(tidyverse)
 
 # Load data ####
 
-mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-covs.rds")
-mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-covs.rds")
+mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs.rds")
+mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs.rds")
 
 # Calculate movement variables ####
 
@@ -28,20 +28,27 @@ mig_fall_amt <- mig_fall_amt %>%
 
 # Scale and center ####
 
+source("FUN_scale-and-center.R")
+
 vars <- c("elev_start", "elev_end", "dist_to_roads_end_log",
           "ndvi_start", "ndvi_end")
 
-means <- mig_spring_amt %>%
+spring_issa_dat <- mig_spring_amt %>%
   dplyr::select(deploy_ID, rsteps) %>%
-  unnest(cols = rsteps) %>%
+  unnest(cols = rsteps)
+fall_issa_dat <- mig_fall_amt %>%
+  dplyr::select(deploy_ID, rsteps) %>%
+  unnest(cols = rsteps)
+
+means <- spring_issa_dat %>%
+  bind_rows(fall_issa_dat) %>%
   mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
   summarize(across(.cols = all_of(vars), .fns = mean, na.rm = TRUE))
 
 saveRDS(means, "output/means.rds")
 
-sds <- mig_spring_amt %>%
-  dplyr::select(deploy_ID, rsteps) %>%
-  unnest(cols = rsteps) %>%
+sds <- spring_issa_dat %>%
+  bind_rows(fall_issa_dat) %>%
   mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
   summarize(across(.cols = all_of(vars), .fns = sd, na.rm = TRUE))
 
@@ -51,50 +58,32 @@ mig_spring_amt <- mig_spring_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
     x %>%
       mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
-      mutate(land_cover_end = factor(land_cover_end, levels = c("Forest",
+      mutate(snow_start = factor(snow_start),
+             snow_end = factor(snow_end),
+             land_cover_end = factor(land_cover_end, levels = c("Forest",
                                                         "Agricultural",
-                                                        "Bare",
                                                         "Developed",
                                                         "Grassland",
-                                                        "Riparian",
-                                                        "Sagebrush",
                                                         "Shrubland",
-                                                        "Blackbrush",
-                                                        "Open Water")),
-             cliffs_end = factor(cliffs_end),
-             elev_start_sc = (elev_start -
-                              means$elev_start)/sds$elev_start,
-             elev_end_sc = (elev_end -
-                              means$elev_end)/sds$elev_end,
-             dist_to_roads_end_log_sc = (dist_to_roads_end_log -
-               means$dist_to_roads_end_log)/sds$dist_to_roads_end_log,
-             ndvi_start_sc = (ndvi_start -
-                                means$ndvi_start)/sds$ndvi_start,
-             ndvi_end_sc = (ndvi_end -
-                                means$ndvi_end)/sds$ndvi_end)
+                                                        "Unsuitable")),
+             cliffs_end = factor(cliffs_end)) %>%
+      scale_data(means, sds)
   }))
 
 mig_fall_amt <- mig_fall_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
     x %>%
       mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
-      mutate(land_cover_end = factor(land_cover_end, levels = c("Forest",
-                                                        "Agricultural",
-                                                        "Bare",
-                                                        "Developed",
-                                                        "Grassland",
-                                                        "Riparian",
-                                                        "Sagebrush",
-                                                        "Shrubland",
-                                                        "Blackbrush",
-                                                        "Open Water")),
-             cliffs_end = factor(cliffs_end),
-             elev_start_sc = (elev_start -
-                                means$elev_start)/sds$elev_start,
-             elev_end_sc = (elev_end -
-                              means$elev_end)/sds$elev_end,
-             dist_to_roads_end_log_sc = (dist_to_roads_end_log -
-                                       means$dist_to_roads_end_log)/sds$dist_to_roads_end_log)
+      mutate(snow_start = factor(snow_start),
+             snow_end = factor(snow_end),
+             land_cover_end = factor(land_cover_end, levels = c("Forest",
+                                                                "Agricultural",
+                                                                "Developed",
+                                                                "Grassland",
+                                                                "Shrubland",
+                                                                "Unsuitable")),
+             cliffs_end = factor(cliffs_end)) %>%
+      scale_data(means, sds)
   }))
 
 # Fit model ####
@@ -121,7 +110,7 @@ mig_spring_amt %>%
   ungroup() %>%
   pull(n) %>%
   table()
-# 62 out of 163.
+# 53 out of 152.
 
 # How many individuals have at least one step on a cliff?
 mig_spring_amt %>%
@@ -134,21 +123,34 @@ mig_spring_amt %>%
   ungroup() %>%
   pull(n) %>%
   table()
-# 146 out of 163.
+# 136 out of 152
 
 # Both of those are problematic and cause convergence problems.
 # Land cover is problematic too, some classes are not represented enough.
+# Update: I now simplified land cover.
 
 # Because elev_start is always the same in a given stratum, elev_end_sc
 # and I(elev_end_sc - elev_start_sc) are perfectly correlated. Can't have both.
+
+# How many individuals that never encounter snow?
+mig_fall_amt %>%
+  dplyr::select(deploy_ID, rsteps) %>%
+  unnest(cols = rsteps) %>%
+  group_by(deploy_ID, snow_end) %>%
+  tally() %>%
+  group_by(deploy_ID) %>%
+  tally() %>%
+  ungroup() %>%
+  pull(n) %>%
+  table()
+# 59 out of 152.
 
 issa_spring <- mig_spring_amt %>%
   mutate(issa = lapply(rsteps, FUN = function (x) {
     res <- NA
     try(res <- fit_issf(data = x,
                         formula = case_ ~
-                          # land_cover_end +
-                          #elev_end_sc +
+                          land_cover_end +
                           I(elev_end_sc - elev_start_sc) +
                           I((elev_end_sc - elev_start_sc)^2) +
                           elev_start_sc : I(elev_end_sc - elev_start_sc) +
@@ -158,6 +160,7 @@ issa_spring <- mig_spring_amt %>%
                           #cliffs_end +
                           I(ndvi_end_sc - ndvi_start_sc) +
                           ndvi_start_sc : I(ndvi_end_sc - ndvi_start_sc) +
+                          #snow_end +
                           sl_ +
                           log_sl_ +
                           cos_ta_ +
@@ -166,7 +169,37 @@ issa_spring <- mig_spring_amt %>%
   })) %>%
   select(deploy_ID, issa)
 
-saveRDS(issa_spring, "output/iSSA_spring_2023-07-20.rds")
+saveRDS(issa_spring, "output/iSSA_spring_2023-07-26.rds")
+
+## Fall ####
+
+issa_fall <- mig_fall_amt %>%
+  mutate(issa = lapply(rsteps, FUN = function (x) {
+    res <- NA
+    try(res <- fit_issf(data = x,
+                        formula = case_ ~
+                          land_cover_end +
+                          I(elev_end_sc - elev_start_sc) +
+                          I((elev_end_sc - elev_start_sc)^2) +
+                          elev_start_sc : I(elev_end_sc - elev_start_sc) +
+                          elev_start_sc : I((elev_end_sc - elev_start_sc)^2) +
+                          dist_to_roads_end_log_sc +
+                          #I(road_poly_start != road_poly_end) +
+                          #cliffs_end +
+                          I(ndvi_end_sc - ndvi_start_sc) +
+                          ndvi_start_sc : I(ndvi_end_sc - ndvi_start_sc) +
+                          #snow_end +
+                          sl_ +
+                          log_sl_ +
+                          cos_ta_ +
+                          strata(burst_step_id_),
+                        model = TRUE))
+  })) %>%
+  select(deploy_ID, issa)
+
+saveRDS(issa_fall, "output/iSSA_fall_2023-07-26.rds")
+
+# Explore results ####
 
 # Look at elevation gain parameters
 
@@ -179,42 +212,6 @@ a <- mean(sapply(issa_spring$issa, function (x) {
 }))
 
 -1*b/(2*a)
-
-## Fall ####
-
-issa_fall <- mig_fall_amt %>%
-  mutate(issa = lapply(rsteps, FUN = function (x) {
-    res <- NA
-    try(res <- fit_issf(data = x,
-                        formula = case_ ~
-                          #land_cover_end +
-                          #elev_end_sc +
-                          I(elev_end_sc - elev_start_sc) +
-                          I((elev_end_sc - elev_start_sc)^2) +
-                          dist_to_roads_end_log_sc +
-                          #I(road_poly_start != road_poly_end) +
-                          #cliffs_end +
-                          sl_ +
-                          log_sl_ +
-                          cos_ta_ +
-                          strata(burst_step_id_),
-                        model = TRUE))
-  })) %>%
-  select(deploy_ID, issa)
-
-# Look at elevation gain parameters
-
-b <- mean(sapply(issa_fall$issa, function (x) {
-  x$model$coefficients[["I(elev_end_sc - elev_start_sc)"]]
-}), na.rm = TRUE)
-
-a <- mean(sapply(issa_fall$issa, function (x) {
-  x$model$coefficients[["I((elev_end_sc - elev_start_sc)^2)"]]
-}), na.rm = TRUE)
-
--1*b/(2*a)
-
-# Explore results ####
 
 # Format model output
 issa_spring <- issa_spring %>%

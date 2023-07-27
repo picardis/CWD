@@ -437,12 +437,30 @@ mule_runs <- mule_nas %>%
 
 # Make sure the individual info are associated to the missing locations too
 ind_info <- mule %>%
-  dplyr::select(uniqueID, species, sex, captureUnit, uniqueID_Range) %>%
+  dplyr::select(uniqueID, species, sex,
+                captureUnit, uniqueID_Range, captureSubUnit) %>%
   distinct() %>%
-  filter(uniqueID %in% unique(mule_runs$uniqueID)) %>%
-  # this individual is duplicated because one time the sex is F, one time it is
-  # unknown. Get rid of the unknown
-  slice(-308)
+  filter(uniqueID %in% unique(mule_runs$uniqueID))
+
+# For individuals that appear twice, filter record with NA capture subunit
+twice <- ind_info %>%
+  group_by(uniqueID) %>%
+  tally() %>%
+  arrange(desc(n)) %>%
+  filter(n == 2) %>%
+  pull(uniqueID)
+
+ind_info <- ind_info %>%
+  filter(!(uniqueID %in% twice & is.na(captureSubUnit)))
+
+# For individuals that appear twice, filter record with unknown sex
+ind_info <- ind_info %>%
+  filter(!(uniqueID %in% twice & sex == "U"))
+
+# One individual has both Vernal and Yellowstone as capture subunit.
+# Keep Yellowstone
+ind_info <- ind_info %>%
+  filter(!(uniqueID %in% twice & captureSubUnit == "Vernal"))
 
 mule_final <- mule_runs %>%
   dplyr::select(uniqueID, burst, deploy_ID, t_, x_, y_,
@@ -469,7 +487,9 @@ mule_final <- mule_final %>%
 
 # Save ####
 
-if (save) {saveRDS(mule_final, "output/mule-deer_regularized-2h_with-NAs.rds")}
+if (save) {saveRDS(mule_final, "output/mule-deer_regularized-2h_with-NAs_2023-07-22.rds")}
+# The difference with the previous version is just that this one has the capture
+# subunit information attached.
 
 # Checks ####
 
