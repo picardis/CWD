@@ -26,6 +26,23 @@ mule2 <- readRDS("output/mule-deer_regularized-2h_with-NAs_2023-07-22.rds")
 
 mule12 <- readRDS("output/mule-deer_regularized-12h_CTMM_with-viterbi.rds")
 
+# Load new information on capture sites ####
+
+cap_lasal <- read.csv("input/lasals_animals_with_cap_areas_krmmanual.csv") %>%
+  mutate(deploy_ID = paste0(uniqueID, "_", collarID)) %>%
+  select(deploy_ID, realCaptur)
+cap_sjuan <- read.csv("input/sanjuan_animals_with_cap_areas_krmmanual.csv") %>%
+  mutate(deploy_ID = paste0(uniqueID, "_", collarID)) %>%
+  select(deploy_ID, realCaptur)
+
+cap_all <- bind_rows(cap_lasal, cap_sjuan)
+
+mule2 <- mule2 %>%
+  left_join(cap_all)
+
+mule12 <- mule12 %>%
+  left_join(cap_all)
+
 # Get migration intervals ####
 
 mule_mig_bouts <- mule12 %>%
@@ -274,8 +291,8 @@ mig_fall_amt <- mig_fall_amt %>%
   }))
 
 
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_2023-11-03.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps.rds_2023-11-03.rds")
 
 # Create extent ####
 
@@ -1053,72 +1070,60 @@ focal_ids <- all_ids[!all_ids %in% c(not_in_wint, not_in_summ)]
 n_by_unit_focal <- pop_data %>%
   as.data.frame() %>%
   filter(deploy_ID %in% focal_ids) %>%
-  dplyr::select(deploy_ID, captureSubUnit) %>%
+  dplyr::select(deploy_ID, realCaptur) %>%
   distinct() %>%
-  group_by(captureSubUnit) %>%
+  group_by(realCaptur) %>%
   tally() %>%
   rename(n_both_seasons = n)
 
-# Too many NAs. Send them to Kezia
-na_subunit1 <- pop_data %>%
-  filter(deploy_ID %in% focal_ids & is.na(captureSubUnit)) %>%
-  dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
-  distinct()
+# RESOLVED OCTOBER 2023.
+# # Too many NAs. Send them to Kezia
+# na_subunit1 <- pop_data %>%
+#   filter(deploy_ID %in% focal_ids & is.na(captureSubUnit)) %>%
+#   dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
+#   distinct()
+#
+# subunits <- mule2 %>%
+#   dplyr::select(deploy_ID, captureSubUnit) %>%
+#   distinct()
+#
+# na_subunit2 <-  mig_spring_amt %>%
+#   unnest(cols = cols) %>%
+#   dplyr::select(uniqueID, deploy_ID, captureUnit) %>%
+#   distinct() %>%
+#   left_join(subunits) %>%
+#   filter(is.na(captureSubUnit)) %>%
+#   dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
+#   distinct()
+#
+# na_subunit3 <-  mig_fall_amt %>%
+#   unnest(cols = cols) %>%
+#   dplyr::select(uniqueID, deploy_ID, captureUnit) %>%
+#   distinct() %>%
+#   left_join(subunits) %>%
+#   filter(is.na(captureSubUnit)) %>%
+#   dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
+#   distinct()
+#
+# na_subunit <- rbind(na_subunit1, na_subunit2, na_subunit3) %>%
+#   distinct()
+#
+# write.csv(na_subunit, "output/NA_subunit.csv")
 
-subunits <- mule2 %>%
-  dplyr::select(deploy_ID, captureSubUnit) %>%
-  distinct()
+focal_known_cap <- pop_data %>%
+  as.data.frame() %>%
+  filter(deploy_ID %in% focal_ids & !is.na(realCaptur)) %>%
+  pull(deploy_ID) %>%
+  unique()
 
-na_subunit2 <-  mig_spring_amt %>%
-  unnest(cols = cols) %>%
-  dplyr::select(uniqueID, deploy_ID, captureUnit) %>%
-  distinct() %>%
-  left_join(subunits) %>%
-  filter(is.na(captureSubUnit)) %>%
-  dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
-  distinct()
-
-na_subunit3 <-  mig_fall_amt %>%
-  unnest(cols = cols) %>%
-  dplyr::select(uniqueID, deploy_ID, captureUnit) %>%
-  distinct() %>%
-  left_join(subunits) %>%
-  filter(is.na(captureSubUnit)) %>%
-  dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
-  distinct()
-
-na_subunit <- rbind(na_subunit1, na_subunit2, na_subunit3) %>%
-  distinct()
-
-write.csv(na_subunit, "output/NA_subunit.csv")
-
-# LEFT OFF HERE 2023-09-12 ###########
-
-n_by_unit <- left_join(n_by_unit, n_by_unit_focal)
-
-# Remove NA captureUnit
-n_by_unit <- n_by_unit %>%
-  filter(!is.na(captureUnit))
-
-# Randomly sample
-random <- lapply(unique(n_by_unit$captureUnit), function (x) {
-  sample(unique(mule2[mule2$captureUnit == x &
-                        mule2$deploy_ID %in% focal_ids,]$deploy_ID),
-         size = n_by_unit[n_by_unit$captureUnit == x, ]$sub_size,
-         replace = FALSE)
-})
-
-rand_sub <- unlist(random)
-
-# Filter data for this random sample of individuals
 summ_res <- summ_res %>%
-  filter(deploy_ID %in% rand_sub)
+  filter(deploy_ID %in% focal_known_cap)
 wint_res <- wint_res %>%
-  filter(deploy_ID %in% rand_sub)
+  filter(deploy_ID %in% focal_known_cap)
 
-ggplot(summ_res, aes(x = x, y = y, color = captureUnit)) +
+ggplot(summ_res, aes(x = x, y = y, color = realCaptur)) +
   geom_point()
-ggplot(wint_res, aes(x = x, y = y, color = captureUnit)) +
+ggplot(wint_res, aes(x = x, y = y, color = realCaptur)) +
   geom_point()
 
 summ_res %>%
@@ -1133,11 +1138,11 @@ summ_res %>%
 
 # Centroids
 summ_centr <- summ_res %>%
-  group_by(captureUnit) %>%
+  group_by(realCaptur) %>%
   summarize(mean_x = mean(x),
             mean_y = mean(y))
 wint_centr <- wint_res %>%
-  group_by(captureUnit) %>%
+  group_by(realCaptur) %>%
   summarize(mean_x = mean(x),
             mean_y = mean(y))
 
@@ -1181,36 +1186,39 @@ mule12 %>%
 
 # Rasterize the residency layers by capture unit
 
-summ_rast <- lapply(unique(summ_res$captureUnit), function(x) {
-  rasterize(as.matrix(summ_res[summ_res$captureUnit == x,
+summ_rast <- lapply(unique(summ_res$realCaptur), function(x) {
+  rasterize(as.matrix(summ_res[summ_res$realCaptur == x,
                                c("x", "y")]),
             elev,
             values = 1)
 }) %>%
   rast()
-names(summ_rast) <- unique(summ_res$captureUnit)
+names(summ_rast) <- unique(summ_res$realCaptur)
 
-wint_rast <- lapply(unique(wint_res$captureUnit), function(x) {
-  rasterize(as.matrix(wint_res[wint_res$captureUnit == x,
+wint_rast <- lapply(unique(wint_res$realCaptur), function(x) {
+  rasterize(as.matrix(wint_res[wint_res$realCaptur == x,
                                c("x", "y")]),
             elev,
             values = 1)
 }) %>%
   rast()
-names(wint_rast) <- unique(wint_res$captureUnit)
+names(wint_rast) <- unique(wint_res$realCaptur)
 
 # Rasterize with one value per raster unit
 summ_rast <- rasterize(as.matrix(summ_res[, c("x", "y")]),
                        elev,
-                       values = summ_res$captureUnit)
+                       values = summ_res$realCaptur)
 wint_rast <- rasterize(as.matrix(wint_res[, c("x", "y")]),
                        elev,
-                       values = wint_res$captureUnit)
+                       values = wint_res$realCaptur)
 
 writeRaster(summ_rast, "output/processed_layers/summer-residencies-by-capture-unit.tiff",
-            overwrite = TRUE)
+            overwrite = TRUE, NAflag = NA)
 writeRaster(wint_rast, "output/processed_layers/winter-residencies-by-capture-unit.tiff",
-            overwrite = TRUE)
+            overwrite = TRUE, NAflag = NA)
+
+levels(summ_rast)[[1]]
+levels(wint_rast)[[1]]
 
 # Processed these layers in QGIS to calculate raster distance from each
 # capture unit's seasonal residency. Load back in:
