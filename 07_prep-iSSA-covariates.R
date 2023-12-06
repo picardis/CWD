@@ -43,6 +43,28 @@ mule2 <- mule2 %>%
 mule12 <- mule12 %>%
   left_join(cap_all)
 
+# Now create new column that uses realCaptur when available and the old
+# capture subunit when realCaptur is not available
+mule2 <- mule2 %>%
+  mutate(csu = case_when(
+    !is.na(realCaptur) ~ realCaptur,
+    is.na(realCaptur) ~ captureSubUnit
+  )) %>%
+  mutate(csu = case_when(
+    csu == "Abajo Mtns" ~ "Abajo",
+    TRUE ~ csu
+  ))
+
+mule12 <- mule12 %>%
+  mutate(csu = case_when(
+    !is.na(realCaptur) ~ realCaptur,
+    is.na(realCaptur) ~ captureSubUnit
+  )) %>%
+  mutate(csu = case_when(
+    csu == "Abajo Mtns" ~ "Abajo",
+    TRUE ~ csu
+  ))
+
 # Get migration intervals ####
 
 mule_mig_bouts <- mule12 %>%
@@ -176,7 +198,8 @@ mig_spring_amt <- spring_mig_data %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
       arrange(t_) %>%
-      make_track(.x = x_, .y = y_, .t = t_) %>%
+      make_track(.x = x_, .y = y_, .t = t_,
+                 all_cols = TRUE) %>%
       track_resample(rate = hours(2))
   })) %>%
   mutate(steps = lapply(trk, FUN = function (x) {
@@ -194,7 +217,8 @@ mig_fall_amt <- fall_mig_data %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
       arrange(t_) %>%
-      make_track(.x = x_, .y = y_, .t = t_) %>%
+      make_track(.x = x_, .y = y_, .t = t_,
+                 all_cols = TRUE) %>%
       track_resample(rate = hours(2))
   })) %>%
   mutate(steps = lapply(trk, FUN = function (x) {
@@ -290,9 +314,8 @@ mig_fall_amt <- mig_fall_amt %>%
                        ta_distr = ta_distr_fall)
   }))
 
-
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_2023-11-03.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps.rds_2023-11-03.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_2023-11-21.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_2023-11-21.rds")
 
 # Create extent ####
 
@@ -733,322 +756,9 @@ mig_fall_amt <- mig_fall_amt %>%
 saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs.rds")
 saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs.rds")
 
-# Population ranges (OLD, SKIP TO NEXT) ####
-
-# # We want to put as a covariate the bearing (or distance, it's mathematically
-# # equivalent) to the population's residency range (winter for fall migration,
-# # summer for spring migration). Subsample a random subset of individuals to
-# # use to define these population seasonal ranges.
-#
-# # UPDATE 2023-09-12: INSTEAD OF SUBSAMPLING, USE THE INDIVIDUALS WITH 12H DATA
-# # TO DEFINE POPULATION RANGES, THAT WAY I DON'T HAVE TO WORRY ABOUT WITHHOLDING
-# # AND I DON'T THROW OUT ANY DATA.
-#
-# # How many individuals do we have per capture unit or subunit?
-# n_by_unit <- mule2 %>%
-#   # 2023-07-27 17:00:00 -- I HAVE RAN THE CODE WITHOUT THE FOLLOWING TWO LINES.
-#   # THIS MEANS I DID NOT RESTRICT THE POOL FROM WHICH I DREW MY RANDOM SAMPLE OF
-#   # WITHHELD INDIVIDUALS TO THE ONES THAT HAD ISSA-SUITABLE DATA. I ENDED UP
-#   # SUBSAMPLING TOO MANY. THAT MADE ME NOTICE THAT ONLY ABOUT HALF OF THE
-#   # INDIVIDUALS I HAD IN THE ORIGINAL DATA MADE IT INTO THE ISSA. WHY IS THAT?
-#   # IS IT ONLY BECAUSE I GOT RID OF THE 12H ONES AND OF THE ONES WITH SHORT
-#   # BURSTS AND LIMITED THE SEASON TO MIGRATION? CHECK AND RE-RUN WHAT NEEDED.
-#   # UPDATE 2023-07-27 17:21:00 -- THERE ARE 240 DEPLOYMENT IDS THAT APPEAR IN
-#   # MULE 12 BUT DO NOT APPEAR IN MULE 2. IS THIS BECAUSE THESE INDIVIDUALS DID
-#   # NOT HAVE 2-H RESOLUTION DATA? THERE WERE 716 INDIVIDUALS IN THE 12-HOUR
-#   # DATASET AND 475 IN THE 2-HOUR DATASET. THIS MEANS I CAN EXPECT TO LOSE
-#   # APPROXIMATELY 241 JUST BECAUSE OF THAT. THAT CHECKS OUT! SO I AM LOSING
-#   # 241 INDIVIDUALS BECAUSE THEY DON'T HAVE 2-HOUR DATA. THEN I AM LOSING 209
-#   # FOR SPRING MIGRATION AND 85 FOR FALL MIGRATION BECAUSE THEY DO NOT MIGRATE
-#   # IN THE FOCAL MONTHS. IT STILL DOES NOT ACCOUNT FOR WHY I END UP WITH ONLY
-#   # 152 INDIVIDUALS IN THE SPRING ISSA AND 203 IN THE FALL ONE.
-#   # filter(deploy_ID %in% unique(c(mig_spring_amt$deploy_ID,
-#   #                                mig_fall_amt$deploy_ID))) %>%
-#   select(deploy_ID, captureUnit) %>%
-#   distinct() %>%
-#   group_by(captureUnit) %>%
-#   tally()
-# # A lot of them have NA for capture subunit. Is the capture unit too coarse?
-#
-# # ggplot(mule2, aes(x = x_, y = y_, color = captureUnit)) +
-# #   geom_point()
-# #
-# # ggplot(mule2, aes(x = x_, y = y_, color = captureSubUnit)) +
-# #   geom_point()
-# # It looks like it should be fine to use the capture unit
-#
-# # Take one quarter of the individuals to subsample
-# n_by_unit$sub_size <- trunc(n_by_unit$n * 0.25)
-#
-# # Residency data
-# summ_res <- mule12 %>%
-#   filter(month(t_) %in% 7:9 &
-#            vit_3states %in% 1:2)
-# wint_res <- mule12 %>%
-#   filter(month(t_) %in% 1:3 &
-#            vit_3states %in% 1:2)
-#
-# # Take only deploy_ID that have data for both winter and summer
-# all_ids <- unique(c(summ_res$deploy_ID, wint_res$deploy_ID))
-# not_in_wint <- setdiff(unique(summ_res$deploy_ID), unique(wint_res$deploy_ID))
-# not_in_summ <- setdiff(unique(wint_res$deploy_ID), unique(summ_res$deploy_ID))
-# focal_ids <- all_ids[!all_ids %in% c(not_in_wint, not_in_summ)]
-#
-# n_by_unit_focal <- mule2 %>%
-#   filter(deploy_ID %in% focal_ids) %>%
-#   select(deploy_ID, captureUnit) %>%
-#   distinct() %>%
-#   group_by(captureUnit) %>%
-#   tally() %>%
-#   rename(n_both_seasons = n)
-#
-# n_by_unit <- left_join(n_by_unit, n_by_unit_focal)
-#
-# # Remove NA captureUnit
-# n_by_unit <- n_by_unit %>%
-#   filter(!is.na(captureUnit))
-#
-# # Randomly sample
-# random <- lapply(unique(n_by_unit$captureUnit), function (x) {
-#   sample(unique(mule2[mule2$captureUnit == x &
-#                         mule2$deploy_ID %in% focal_ids,]$deploy_ID),
-#          size = n_by_unit[n_by_unit$captureUnit == x, ]$sub_size,
-#          replace = FALSE)
-# })
-#
-# rand_sub <- unlist(random)
-#
-# # Filter data for this random sample of individuals
-# summ_res <- summ_res %>%
-#   filter(deploy_ID %in% rand_sub)
-# wint_res <- wint_res %>%
-#   filter(deploy_ID %in% rand_sub)
-#
-# ggplot(summ_res, aes(x = x, y = y, color = captureUnit)) +
-#      geom_point()
-# ggplot(wint_res, aes(x = x, y = y, color = captureUnit)) +
-#   geom_point()
-#
-# summ_res %>%
-#   mutate(season = "Summer") %>%
-#   bind_rows(wint_res) %>%
-#   mutate(season = case_when(
-#     is.na(season) ~ "Winter",
-#     TRUE ~ season
-#   )) %>%
-#   ggplot(aes(x = x, y = y, color = season)) +
-#   geom_point(alpha = 0.1)
-#
-# # Centroids
-# summ_centr <- summ_res %>%
-#   group_by(captureUnit) %>%
-#   summarize(mean_x = mean(x),
-#             mean_y = mean(y))
-# wint_centr <- wint_res %>%
-#   group_by(captureUnit) %>%
-#   summarize(mean_x = mean(x),
-#             mean_y = mean(y))
-#
-# summ_centr %>%
-#   mutate(season = "Summer") %>%
-#   bind_rows(wint_centr) %>%
-#   mutate(season = case_when(
-#     is.na(season) ~ "Winter",
-#     TRUE ~ season
-#   )) %>%
-#   ggplot(aes(x = mean_x, y = mean_y, color = season)) +
-#   geom_point()
-#
-# summ_res %>%
-#   mutate(season = "Summer") %>%
-#   bind_rows(wint_res) %>%
-#   mutate(season = case_when(
-#     is.na(season) ~ "Winter",
-#     TRUE ~ season
-#   )) %>%
-#   ggplot(aes(x = x, y = y, color = season)) +
-#   geom_point(alpha = 0.1) +
-#   geom_point(aes(x = mean_x, y = mean_y),
-#              data = summ_centr, color = "black", shape = 15) +
-#   geom_point(aes(x = mean_x, y = mean_y),
-#              data = wint_centr, color = "black", shape = 17)
-#
-# # Sniff test: are the states making sense?
-# mule12 %>%
-#   mutate(season = case_when(
-#     month(t_) %in% 4:6 ~ "Spring",
-#     month(t_) %in% 7:9 ~ "Summer",
-#     month(t_) %in% 10:12 ~ "Fall",
-#     month(t_) %in% 1:3 ~ "Winter"
-#   )) %>%
-#   filter((vit_3states == 3 & season %in% c("Spring", "Fall")) |
-#            (vit_3states %in% 1:2 & season %in% c("Summer", "Winter"))) %>%
-#   ggplot(aes(x = x, y = y, color = season)) +
-#   geom_point(alpha = 0.1, size = 0.5)
-# # It looks ok
-#
-# # Rasterize the residency layers by capture unit
-#
-# summ_rast <- lapply(unique(summ_res$captureUnit), function(x) {
-#   rasterize(as.matrix(summ_res[summ_res$captureUnit == x,
-#                                c("x", "y")]),
-#             elev,
-#             values = 1)
-# }) %>%
-#   rast()
-# names(summ_rast) <- unique(summ_res$captureUnit)
-#
-# wint_rast <- lapply(unique(wint_res$captureUnit), function(x) {
-#   rasterize(as.matrix(wint_res[wint_res$captureUnit == x,
-#                                c("x", "y")]),
-#             elev,
-#             values = 1)
-# }) %>%
-#   rast()
-# names(wint_rast) <- unique(wint_res$captureUnit)
-#
-# # Rasterize with one value per raster unit
-# summ_rast <- rasterize(as.matrix(summ_res[, c("x", "y")]),
-#           elev,
-#           values = summ_res$captureUnit)
-# wint_rast <- rasterize(as.matrix(wint_res[, c("x", "y")]),
-#                        elev,
-#                        values = wint_res$captureUnit)
-#
-# writeRaster(summ_rast, "output/processed_layers/summer-residencies-by-capture-unit.tiff",
-#             overwrite = TRUE)
-# writeRaster(wint_rast, "output/processed_layers/winter-residencies-by-capture-unit.tiff",
-#             overwrite = TRUE)
-#
-# # Processed these layers in QGIS to calculate raster distance from each
-# # capture unit's seasonal residency. Load back in:
-# summ_dist_lasal <- rast("output/processed_layers/proximity_cu1_summer.tif")
-# summ_dist_nslope <- rast("output/processed_layers/proximity_cu2_summer.tif")
-# summ_dist_sjuan <- rast("output/processed_layers/proximity_cu3_summer.tif")
-# summ_dist_smanti <- rast("output/processed_layers/proximity_cu4_summer.tif")
-# summ_dist_sslope <- rast("output/processed_layers/proximity_cu5_summer.tif")
-#
-# wint_dist_lasal <- rast("output/processed_layers/proximity_cu1_winter.tif")
-# wint_dist_nslope <- rast("output/processed_layers/proximity_cu2_winter.tif")
-# wint_dist_sjuan <- rast("output/processed_layers/proximity_cu3_winter.tif")
-# wint_dist_smanti <- rast("output/processed_layers/proximity_cu4_winter.tif")
-# wint_dist_sslope <- rast("output/processed_layers/proximity_cu5_winter.tif")
-#
-# names(summ_dist_lasal) <- "dist_summ_lasal"
-# names(summ_dist_nslope) <- "dist_summ_nslope"
-# names(summ_dist_sjuan) <- "dist_summ_sjuan"
-# names(summ_dist_smanti) <- "dist_summ_smanti"
-# names(summ_dist_sslope) <- "dist_summ_sslope"
-#
-# names(wint_dist_lasal) <- "dist_wint_lasal"
-# names(wint_dist_nslope) <- "dist_wint_nslope"
-# names(wint_dist_sjuan) <- "dist_wint_sjuan"
-# names(wint_dist_smanti) <- "dist_wint_smanti"
-# names(wint_dist_sslope) <- "dist_wint_sslope"
-#
-# dists <- c(summ_dist_lasal,
-#            summ_dist_nslope,
-#            summ_dist_sjuan,
-#            summ_dist_smanti,
-#            summ_dist_sslope,
-#            wint_dist_lasal,
-#            wint_dist_nslope,
-#            wint_dist_sjuan,
-#            wint_dist_smanti,
-#            wint_dist_sslope)
-#
-# par(mfrow = c(1, 2))
-# plot(summ_dist_sslope)
-# points(wint_res[wint_res$captureUnit == "South Slope", ]$x,
-#        wint_res[wint_res$captureUnit == "South Slope", ]$y)
-# plot(wint_dist_sslope)
-# points(summ_res[summ_res$captureUnit == "South Slope", ]$x,
-#        summ_res[summ_res$captureUnit == "South Slope", ]$y)
-#
-# # Extract distance values
-# mig_spring_amt <- mig_spring_amt %>%
-#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
-#     x %>%
-#       extract_covariates(dists, where = "end")
-#   }))
-# mig_fall_amt <- mig_fall_amt %>%
-#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
-#     x %>%
-#       extract_covariates(dists, where = "end")
-#   }))
-#
-# # Key
-# key <- mule2 %>%
-#   select(deploy_ID, captureUnit) %>%
-#   distinct()
-#
-# # Combine in one column with appropriate capture unit
-# mig_spring_amt <- mig_spring_amt %>%
-#   select(deploy_ID, rsteps) %>%
-#   unnest(rsteps) %>%
-#   left_join(key, by = "deploy_ID") %>%
-#   nest(rsteps = -deploy_ID) %>%
-#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
-#     x %>%
-#       mutate(dist_summ_range = case_when(
-#         captureUnit == "La Sal" ~ dist_summ_lasal,
-#         captureUnit == "North Slope" ~ dist_summ_nslope,
-#         captureUnit == "San Juan" ~ dist_summ_sjuan,
-#         captureUnit == "South Manti" ~ dist_summ_smanti,
-#         captureUnit == "South Slope" ~ dist_summ_sslope
-#       ),
-#       dist_wint_range = case_when(
-#         captureUnit == "La Sal" ~ dist_wint_lasal,
-#         captureUnit == "North Slope" ~ dist_wint_nslope,
-#         captureUnit == "San Juan" ~ dist_wint_sjuan,
-#         captureUnit == "South Manti" ~ dist_wint_smanti,
-#         captureUnit == "South Slope" ~ dist_wint_sslope)) %>%
-#       select(-c(dist_summ_lasal, dist_summ_nslope,
-#                 dist_summ_sjuan, dist_summ_smanti,
-#                 dist_summ_sslope, dist_wint_lasal,
-#                 dist_wint_nslope, dist_wint_sjuan,
-#                 dist_wint_smanti, dist_wint_sslope))
-#   }))
-#
-# mig_fall_amt <- mig_fall_amt %>%
-#   select(deploy_ID, rsteps) %>%
-#   unnest(rsteps) %>%
-#   left_join(key, by = "deploy_ID") %>%
-#   nest(rsteps = -deploy_ID) %>%
-#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
-#     x %>%
-#       mutate(dist_summ_range = case_when(
-#         captureUnit == "La Sal" ~ dist_summ_lasal,
-#         captureUnit == "North Slope" ~ dist_summ_nslope,
-#         captureUnit == "San Juan" ~ dist_summ_sjuan,
-#         captureUnit == "South Manti" ~ dist_summ_smanti,
-#         captureUnit == "South Slope" ~ dist_summ_sslope
-#       ),
-#       dist_wint_range = case_when(
-#         captureUnit == "La Sal" ~ dist_wint_lasal,
-#         captureUnit == "North Slope" ~ dist_wint_nslope,
-#         captureUnit == "San Juan" ~ dist_wint_sjuan,
-#         captureUnit == "South Manti" ~ dist_wint_smanti,
-#         captureUnit == "South Slope" ~ dist_wint_sslope)) %>%
-#       select(-c(dist_summ_lasal, dist_summ_nslope,
-#                 dist_summ_sjuan, dist_summ_smanti,
-#                 dist_summ_sslope, dist_wint_lasal,
-#                 dist_wint_nslope, dist_wint_sjuan,
-#                 dist_wint_smanti, dist_wint_sslope))
-#   }))
-#
-# # Restrict to individuals that were not used to define residency ranges
-# mig_spring_amt_sub <- mig_spring_amt %>%
-#   filter(!deploy_ID %in% unique(summ_res$deploy_ID))
-# mig_fall_amt_sub <- mig_fall_amt %>%
-#   filter(!deploy_ID %in% unique(wint_res$deploy_ID))
-#
-# saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-sub.rds")
-# saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-sub.rds")
-
 # Population ranges ####
 
-# Use 12h individuals that weren't included in iSSA
+# Use 12h individuals which weren't included in iSSA
 pop_data <- mule12 %>%
   filter(!deploy_ID %in% c(mig_spring_amt$deploy_ID,
                            mig_fall_amt$deploy_ID))
@@ -1061,58 +771,27 @@ wint_res <- pop_data %>%
   filter(month(t_) %in% 1:3 &
            vit_3states %in% 1:2)
 
-# Take only deploy_ID that have data for both winter and summer
+## WHY WOULD THIS MATTER?
+# # Take only deploy_ID that have data for both winter and summer
 all_ids <- unique(c(summ_res$deploy_ID, wint_res$deploy_ID))
-not_in_wint <- setdiff(unique(summ_res$deploy_ID), unique(wint_res$deploy_ID))
-not_in_summ <- setdiff(unique(wint_res$deploy_ID), unique(summ_res$deploy_ID))
-focal_ids <- all_ids[!all_ids %in% c(not_in_wint, not_in_summ)]
+# not_in_wint <- setdiff(unique(summ_res$deploy_ID), unique(wint_res$deploy_ID))
+# not_in_summ <- setdiff(unique(wint_res$deploy_ID), unique(summ_res$deploy_ID))
+# focal_ids <- all_ids[!all_ids %in% c(not_in_wint, not_in_summ)]
 
 n_by_unit_focal <- pop_data %>%
   as.data.frame() %>%
-  filter(deploy_ID %in% focal_ids) %>%
-  dplyr::select(deploy_ID, realCaptur) %>%
+  #filter(deploy_ID %in% focal_ids) %>%
+  filter(deploy_ID %in% all_ids & !is.na(csu)) %>%
+  dplyr::select(deploy_ID, csu) %>%
   distinct() %>%
-  group_by(realCaptur) %>%
+  group_by(csu) %>%
   tally() %>%
   rename(n_both_seasons = n)
 
-# RESOLVED OCTOBER 2023.
-# # Too many NAs. Send them to Kezia
-# na_subunit1 <- pop_data %>%
-#   filter(deploy_ID %in% focal_ids & is.na(captureSubUnit)) %>%
-#   dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
-#   distinct()
-#
-# subunits <- mule2 %>%
-#   dplyr::select(deploy_ID, captureSubUnit) %>%
-#   distinct()
-#
-# na_subunit2 <-  mig_spring_amt %>%
-#   unnest(cols = cols) %>%
-#   dplyr::select(uniqueID, deploy_ID, captureUnit) %>%
-#   distinct() %>%
-#   left_join(subunits) %>%
-#   filter(is.na(captureSubUnit)) %>%
-#   dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
-#   distinct()
-#
-# na_subunit3 <-  mig_fall_amt %>%
-#   unnest(cols = cols) %>%
-#   dplyr::select(uniqueID, deploy_ID, captureUnit) %>%
-#   distinct() %>%
-#   left_join(subunits) %>%
-#   filter(is.na(captureSubUnit)) %>%
-#   dplyr::select(uniqueID, deploy_ID, captureUnit, captureSubUnit) %>%
-#   distinct()
-#
-# na_subunit <- rbind(na_subunit1, na_subunit2, na_subunit3) %>%
-#   distinct()
-#
-# write.csv(na_subunit, "output/NA_subunit.csv")
-
 focal_known_cap <- pop_data %>%
   as.data.frame() %>%
-  filter(deploy_ID %in% focal_ids & !is.na(realCaptur)) %>%
+  # replaced focal with all
+  filter(deploy_ID %in% all_ids & !is.na(csu)) %>%
   pull(deploy_ID) %>%
   unique()
 
@@ -1121,9 +800,9 @@ summ_res <- summ_res %>%
 wint_res <- wint_res %>%
   filter(deploy_ID %in% focal_known_cap)
 
-ggplot(summ_res, aes(x = x, y = y, color = realCaptur)) +
+ggplot(summ_res, aes(x = x, y = y, color = csu)) +
   geom_point()
-ggplot(wint_res, aes(x = x, y = y, color = realCaptur)) +
+ggplot(wint_res, aes(x = x, y = y, color = csu)) +
   geom_point()
 
 summ_res %>%
@@ -1136,212 +815,230 @@ summ_res %>%
   ggplot(aes(x = x, y = y, color = season)) +
   geom_point(alpha = 0.1)
 
-# Centroids
-summ_centr <- summ_res %>%
-  group_by(realCaptur) %>%
-  summarize(mean_x = mean(x),
-            mean_y = mean(y))
-wint_centr <- wint_res %>%
-  group_by(realCaptur) %>%
-  summarize(mean_x = mean(x),
-            mean_y = mean(y))
+# I need to have residency data for at least one animal in each CSU that's in
+# the iSSA data. I need one summer for the spring iSSA CSUs and one winter for
+# the fall iSSA CSUs. Check:
+need_summer <- unique(unlist(lapply(1:nrow(mig_spring_amt), FUN = function(x) {
+  unique(mig_spring_amt$rsteps[[x]]$csu)})))
+need_winter <- unique(unlist(lapply(1:nrow(mig_fall_amt), FUN = function(x) {
+  unique(mig_fall_amt$rsteps[[x]]$csu)})))
+needed_csu <- data.frame(csu = sort(c(unique(need_summer, need_winter)))) %>%
+  mutate(needed_summer = csu %in% need_summer,
+         needed_winter = csu %in% need_winter) %>%
+  # Do I have what I need from the 12h data?
+  mutate(got_summer = csu %in% summ_res$csu,
+         got_winter = csu %in% wint_res$csu)
 
-summ_centr %>%
-  mutate(season = "Summer") %>%
-  bind_rows(wint_centr) %>%
-  mutate(season = case_when(
-    is.na(season) ~ "Winter",
-    TRUE ~ season
-  )) %>%
-  ggplot(aes(x = mean_x, y = mean_y, color = season)) +
-  geom_point()
+# For the CSUs that I don't have info for in the 12h data, I can subset a few
+# individuals from the 2h data.
+miss_summer <- needed_csu %>%
+  filter(needed_summer == TRUE & got_summer == FALSE) %>%
+  pull(csu)
+miss_winter <- needed_csu %>%
+  filter(needed_winter == TRUE & got_winter == FALSE) %>%
+  pull(csu)
 
+# Get residency data from 2h data
+mig_data_2h <- spring_mig_data %>%
+  bind_rows(fall_mig_data) %>%
+  mutate(mig = TRUE)
+
+res_data_2h <- mule2 %>%
+  left_join(mig_data_2h) %>%
+  filter(is.na(mig)) %>%
+  dplyr::select(-mig)
+
+# How many individuals do I have for each of those in the 2h data?
+n_summ_2h <- res_data_2h %>%
+  filter(csu %in% miss_summer,
+         month(t_) %in% 7:9) %>%
+  select(csu, deploy_ID) %>%
+  distinct() %>%
+  group_by(csu) %>%
+  tally()
+
+n_wint_2h <- res_data_2h %>%
+  filter(csu %in% miss_winter,
+         month(t_) %in% 1:3) %>%
+  select(csu, deploy_ID) %>%
+  distinct() %>%
+  group_by(csu) %>%
+  tally()
+
+# Randomly sample 2 of them per CSU
+summ_options <- res_data_2h %>%
+  filter(csu %in% miss_summer,
+         month(t_) %in% 7:9) %>%
+  select(csu, deploy_ID) %>%
+  distinct()
+
+summ_samp <- c()
+for (u in 1:length(unique(summ_options$csu))) {
+  choices <- summ_options[summ_options$csu == unique(summ_options$csu)[u], ]
+  if (nrow(choices) > 1) {
+  summ_samp <- c(summ_samp,
+                 sample(choices$deploy_ID, size = 2, replace = FALSE))
+  } else {
+    summ_samp[u] <- choices$deploy_ID
+    }
+}
+
+wint_options <- res_data_2h %>%
+  filter(csu %in% miss_winter,
+         month(t_) %in% 7:9) %>%
+  select(csu, deploy_ID) %>%
+  distinct()
+
+wint_samp <- c()
+for (u in 1:length(unique(wint_options$csu))) {
+  choices <- wint_options[wint_options$csu == unique(wint_options$csu)[u], ]
+  if (nrow(choices) > 1) {
+    wint_samp <- c(wint_samp,
+                   sample(choices$deploy_ID, size = 2, replace = FALSE))
+  } else {
+    wint_samp[u] <- choices$deploy_ID
+  }
+}
+
+# Get them
+summ_2h <- res_data_2h %>%
+  filter(deploy_ID %in% summ_samp,
+         month(t_) %in% 7:9)
+
+wint_2h <- res_data_2h %>%
+  filter(deploy_ID %in% wint_samp,
+         month(t_) %in% 1:3)
+
+# Merge all residency data together now
+summ_res <- summ_2h %>%
+  rename(x = x_, y = y_) %>%
+  select(deploy_ID, x, y, csu) %>%
+  bind_rows(summ_res[, c("deploy_ID", "x", "y", "csu")])
+
+wint_res <- wint_2h %>%
+  rename(x = x_, y = y_) %>%
+  select(deploy_ID, x, y, csu) %>%
+  bind_rows(wint_res[, c("deploy_ID", "x", "y", "csu")])
+
+# Make table of how many individuals per CSU
 summ_res %>%
-  mutate(season = "Summer") %>%
-  bind_rows(wint_res) %>%
-  mutate(season = case_when(
-    is.na(season) ~ "Winter",
-    TRUE ~ season
-  )) %>%
-  ggplot(aes(x = x, y = y, color = season)) +
-  geom_point(alpha = 0.1) +
-  geom_point(aes(x = mean_x, y = mean_y),
-             data = summ_centr, color = "black", shape = 15) +
-  geom_point(aes(x = mean_x, y = mean_y),
-             data = wint_centr, color = "black", shape = 17)
+  select(deploy_ID, csu) %>%
+  distinct() %>%
+  group_by(csu) %>%
+  tally() %>%
+  as.data.frame()
 
-# Sniff test: are the states making sense?
-mule12 %>%
-  mutate(season = case_when(
-    month(t_) %in% 4:6 ~ "Spring",
-    month(t_) %in% 7:9 ~ "Summer",
-    month(t_) %in% 10:12 ~ "Fall",
-    month(t_) %in% 1:3 ~ "Winter"
-  )) %>%
-  filter((vit_3states == 3 & season %in% c("Spring", "Fall")) |
-           (vit_3states %in% 1:2 & season %in% c("Summer", "Winter"))) %>%
-  ggplot(aes(x = x, y = y, color = season)) +
-  geom_point(alpha = 0.1, size = 0.5)
-# It looks ok
+wint_res %>%
+  select(deploy_ID, csu) %>%
+  distinct() %>%
+  group_by(csu) %>%
+  tally() %>%
+  as.data.frame()
 
 # Rasterize the residency layers by capture unit
 
-summ_rast <- lapply(unique(summ_res$realCaptur), function(x) {
-  rasterize(as.matrix(summ_res[summ_res$realCaptur == x,
+summ_rast <- lapply(unique(summ_res$csu), function(x) {
+  rasterize(as.matrix(summ_res[summ_res$csu == x,
                                c("x", "y")]),
             elev,
             values = 1)
 }) %>%
   rast()
-names(summ_rast) <- unique(summ_res$realCaptur)
-
-wint_rast <- lapply(unique(wint_res$realCaptur), function(x) {
-  rasterize(as.matrix(wint_res[wint_res$realCaptur == x,
-                               c("x", "y")]),
-            elev,
-            values = 1)
-}) %>%
-  rast()
-names(wint_rast) <- unique(wint_res$realCaptur)
-
-# Rasterize with one value per raster unit
-summ_rast <- rasterize(as.matrix(summ_res[, c("x", "y")]),
-                       elev,
-                       values = summ_res$realCaptur)
-wint_rast <- rasterize(as.matrix(wint_res[, c("x", "y")]),
-                       elev,
-                       values = wint_res$realCaptur)
+names(summ_rast) <- unique(summ_res$csu)
 
 writeRaster(summ_rast, "output/processed_layers/summer-residencies-by-capture-unit.tiff",
             overwrite = TRUE, NAflag = NA)
+
+gc()
+
+wint_rast <- lapply(unique(wint_res$csu), function(x) {
+  rasterize(as.matrix(wint_res[wint_res$csu == x,
+                               c("x", "y")]),
+            elev,
+            values = 1)
+}) %>%
+  rast()
+names(wint_rast) <- unique(wint_res$csu)
+
 writeRaster(wint_rast, "output/processed_layers/winter-residencies-by-capture-unit.tiff",
             overwrite = TRUE, NAflag = NA)
 
-levels(summ_rast)[[1]]
-levels(wint_rast)[[1]]
+gc()
 
-# Processed these layers in QGIS to calculate raster distance from each
-# capture unit's seasonal residency. Load back in:
-summ_dist_lasal <- rast("output/processed_layers/proximity_cu1_summer.tif")
-summ_dist_nslope <- rast("output/processed_layers/proximity_cu2_summer.tif")
-summ_dist_sjuan <- rast("output/processed_layers/proximity_cu3_summer.tif")
-summ_dist_smanti <- rast("output/processed_layers/proximity_cu4_summer.tif")
-summ_dist_sslope <- rast("output/processed_layers/proximity_cu5_summer.tif")
+summ_dist <- distance(summ_rast)
+wint_dist <- distance(wint_rast)
 
-wint_dist_lasal <- rast("output/processed_layers/proximity_cu1_winter.tif")
-wint_dist_nslope <- rast("output/processed_layers/proximity_cu2_winter.tif")
-wint_dist_sjuan <- rast("output/processed_layers/proximity_cu3_winter.tif")
-wint_dist_smanti <- rast("output/processed_layers/proximity_cu4_winter.tif")
-wint_dist_sslope <- rast("output/processed_layers/proximity_cu5_winter.tif")
+rm(list=ls()[! ls() %in% c("mig_spring_amt",
+                           "mig_fall_amt",
+                           "summ_dist",
+                           "wint_dist",
+                           "summ_2h",
+                           "wint_2h")])
 
-names(summ_dist_lasal) <- "dist_summ_lasal"
-names(summ_dist_nslope) <- "dist_summ_nslope"
-names(summ_dist_sjuan) <- "dist_summ_sjuan"
-names(summ_dist_smanti) <- "dist_summ_smanti"
-names(summ_dist_sslope) <- "dist_summ_sslope"
-
-names(wint_dist_lasal) <- "dist_wint_lasal"
-names(wint_dist_nslope) <- "dist_wint_nslope"
-names(wint_dist_sjuan) <- "dist_wint_sjuan"
-names(wint_dist_smanti) <- "dist_wint_smanti"
-names(wint_dist_sslope) <- "dist_wint_sslope"
-
-dists <- c(summ_dist_lasal,
-           summ_dist_nslope,
-           summ_dist_sjuan,
-           summ_dist_smanti,
-           summ_dist_sslope,
-           wint_dist_lasal,
-           wint_dist_nslope,
-           wint_dist_sjuan,
-           wint_dist_smanti,
-           wint_dist_sslope)
-
-par(mfrow = c(1, 2))
-plot(summ_dist_sslope)
-points(wint_res[wint_res$captureUnit == "South Slope", ]$x,
-       wint_res[wint_res$captureUnit == "South Slope", ]$y)
-plot(wint_dist_sslope)
-points(summ_res[summ_res$captureUnit == "South Slope", ]$x,
-       summ_res[summ_res$captureUnit == "South Slope", ]$y)
+gc()
 
 # Extract distance values
 mig_spring_amt <- mig_spring_amt %>%
+  filter(!deploy_ID %in% summ_2h$deploy_ID) %>%
   mutate(rsteps = lapply(rsteps, FUN = function (x) {
     x %>%
-      extract_covariates(dists, where = "end")
+      extract_covariates(summ_dist, where = "both")
   }))
+
+gc()
+
 mig_fall_amt <- mig_fall_amt %>%
+  filter(!deploy_ID %in% wint_2h$deploy_ID) %>%
   mutate(rsteps = lapply(rsteps, FUN = function (x) {
     x %>%
-      extract_covariates(dists, where = "end")
+      extract_covariates(wint_dist, where = "both")
   }))
 
-# Key
-key <- mule2 %>%
-  select(deploy_ID, captureUnit) %>%
-  distinct()
+gc()
 
-# Combine in one column with appropriate capture unit
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-pop-ranges.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-pop-ranges.rds")
+
+mig_spring_amt$rsteps <- lapply(mig_spring_amt$rsteps, function(x) {
+
+  cap <- unique(x$csu)
+  if(is.na(cap)) {
+    x$dist_to_summ_end <- NA
+  } else {
+  vals <- x[, grepl(paste0(cap, "_end"),
+                    colnames(x))]
+  names(vals) <- "dist_to_summ_end"
+  x <- cbind(x, vals)}
+  return(x)
+
+})
+
+mig_fall_amt$rsteps <- lapply(mig_fall_amt$rsteps, function(x) {
+
+  cap <- unique(x$csu)
+  if(is.na(cap)) {
+    x$dist_to_wint_end <- NA
+  } else {
+    vals <- x[, grepl(paste0(cap, "_end"),
+                      colnames(x))]
+    names(vals) <- "dist_to_wint_end"
+    x <- cbind(x, vals)}
+  return(x)
+
+})
+
+# Get rid of distance to irrelevant CSUs
 mig_spring_amt <- mig_spring_amt %>%
-  select(deploy_ID, rsteps) %>%
-  unnest(rsteps) %>%
-  left_join(key, by = "deploy_ID") %>%
-  nest(rsteps = -deploy_ID) %>%
-  mutate(rsteps = lapply(rsteps, FUN = function (x) {
+  mutate(rsteps = lapply(rsteps, function(x) {
     x %>%
-      mutate(dist_summ_range = case_when(
-        captureUnit == "La Sal" ~ dist_summ_lasal,
-        captureUnit == "North Slope" ~ dist_summ_nslope,
-        captureUnit == "San Juan" ~ dist_summ_sjuan,
-        captureUnit == "South Manti" ~ dist_summ_smanti,
-        captureUnit == "South Slope" ~ dist_summ_sslope
-      ),
-      dist_wint_range = case_when(
-        captureUnit == "La Sal" ~ dist_wint_lasal,
-        captureUnit == "North Slope" ~ dist_wint_nslope,
-        captureUnit == "San Juan" ~ dist_wint_sjuan,
-        captureUnit == "South Manti" ~ dist_wint_smanti,
-        captureUnit == "South Slope" ~ dist_wint_sslope)) %>%
-      select(-c(dist_summ_lasal, dist_summ_nslope,
-                dist_summ_sjuan, dist_summ_smanti,
-                dist_summ_sslope, dist_wint_lasal,
-                dist_wint_nslope, dist_wint_sjuan,
-                dist_wint_smanti, dist_wint_sslope))
+      select(x1_:snow_end, dist_to_summ_end)
   }))
 
 mig_fall_amt <- mig_fall_amt %>%
-  select(deploy_ID, rsteps) %>%
-  unnest(rsteps) %>%
-  left_join(key, by = "deploy_ID") %>%
-  nest(rsteps = -deploy_ID) %>%
-  mutate(rsteps = lapply(rsteps, FUN = function (x) {
+  mutate(rsteps = lapply(rsteps, function(x) {
     x %>%
-      mutate(dist_summ_range = case_when(
-        captureUnit == "La Sal" ~ dist_summ_lasal,
-        captureUnit == "North Slope" ~ dist_summ_nslope,
-        captureUnit == "San Juan" ~ dist_summ_sjuan,
-        captureUnit == "South Manti" ~ dist_summ_smanti,
-        captureUnit == "South Slope" ~ dist_summ_sslope
-      ),
-      dist_wint_range = case_when(
-        captureUnit == "La Sal" ~ dist_wint_lasal,
-        captureUnit == "North Slope" ~ dist_wint_nslope,
-        captureUnit == "San Juan" ~ dist_wint_sjuan,
-        captureUnit == "South Manti" ~ dist_wint_smanti,
-        captureUnit == "South Slope" ~ dist_wint_sslope)) %>%
-      select(-c(dist_summ_lasal, dist_summ_nslope,
-                dist_summ_sjuan, dist_summ_smanti,
-                dist_summ_sslope, dist_wint_lasal,
-                dist_wint_nslope, dist_wint_sjuan,
-                dist_wint_smanti, dist_wint_sslope))
+      select(x1_:snow_end, dist_to_wint_end)
   }))
 
-# Restrict to individuals that were not used to define residency ranges
-mig_spring_amt_sub <- mig_spring_amt %>%
-  filter(!deploy_ID %in% unique(summ_res$deploy_ID))
-mig_fall_amt_sub <- mig_fall_amt %>%
-  filter(!deploy_ID %in% unique(wint_res$deploy_ID))
-
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-sub.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-sub.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-dist.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds")

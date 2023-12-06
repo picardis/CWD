@@ -1,0 +1,88 @@
+i used the new capture area labels when available.
+
+when not available, i filled the gaps with the old capture area labels.
+
+that left me with 31 capture units.
+
+i took the individuals with 12h data (which are not the ones we are using for the iSSA) and used them to define summer and winter residency ranges for each of the capture units.
+
+some capture units were not represented in the 12h data, at least not during residency (which was defined based on HMM state and month).
+
+i randomly sampled a few individuals from the 2h data to represent those missing capture units. subsample residency data (defined based on HMM state and month) and then randomly sample 2 individuals per capture unit among those. 
+
+once i had all capture units represented, either with 12h or 2h data, i made a layer of distance from the summer or winter residency for each capture unit.
+
+then, i intersected the distance information with the data for the individuals that were not used to define the residency ranges. these will go into the iSSA.
+
+remember that we fit the HMM on the 12h data because it allowed us to better delineate migration, but then we fit the iSSA on the 2h data using the steps within the migration intervals identified at a 12h scale with the HMM (I COMPLETELY FORGOT THAT THIS IS WHAT WE DID).
+
+tables of how many individuals were used to define residency ranges in each season for each capture unit:
+
+SUMMER
+                          csu  n
+1                       Abajo  1
+2                     Airport  4
+3            Alkali-Montezuma 16
+4                   BeefBasin  5
+5               Bigelow Bench  2
+6       Black Ridge-Pine Flat  1
+7                   BlackMesa  8
+8               Castle Valley  1
+9                    DeerFlat  4
+10                Diamond Mtn 19
+11                  Elk Ridge  1
+12                     Ferron  1
+13                     Grimes  3
+14                  HartsDraw 27
+15                       Horn  7
+16                Joes Valley  2
+17 Lisbon Valley - San Miguel  1
+18     Lisbon Valley-Two Mile  3
+19                Muddy Creek  7
+20                 MuleCanyon  2
+21                  Old Woman  5
+22                South Manti  2
+23              SpanishValley  1
+24    SpanishValley-Pine Flat  2
+25                     Summit 14
+26                Taylor Flat  1
+27              Three Corners  3
+28                     Vernal 19
+29               West Daggett  9
+30                    Wrigley  2
+31                Yellowstone 37
+
+WINTER
+                          csu  n
+1                       Abajo  2
+2                     Airport  7
+3            Alkali-Montezuma 32
+4                   BeefBasin  7
+5               Bigelow Bench  5
+6       Black Ridge-Pine Flat  1
+7                   BlackMesa 20
+8               Castle Valley  4
+9                    DeerFlat  4
+10                Diamond Mtn 30
+11                  Elk Ridge  4
+12                     Ferron  1
+13                     Grimes  4
+14                  HartsDraw 37
+15                       Horn  7
+16                Joes Valley  3
+17             La Sal-Brown's  2
+18 Lisbon Valley - San Miguel  1
+19     Lisbon Valley-Two Mile  4
+20                Muddy Creek  8
+21                 MuleCanyon  2
+22                  Old Woman  5
+23                South Manti  3
+24              SpanishValley  1
+25    SpanishValley-Pine Flat  2
+26                     Summit  7
+27                Taylor Flat  1
+28              Three Corners  5
+29                     Vernal 29
+30               West Daggett  8
+31                    Wrigley  5
+32                Yellowstone 60
