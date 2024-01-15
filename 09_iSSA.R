@@ -5,8 +5,8 @@ library(tidyverse)
 
 # Load data ####
 
-mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs.rds")
-mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs.rds")
+mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
+mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds")
 
 # Calculate movement variables ####
 
@@ -31,7 +31,7 @@ mig_fall_amt <- mig_fall_amt %>%
 source("FUN_scale-and-center.R")
 
 vars <- c("elev_start", "elev_end", "dist_to_roads_end_log",
-          "ndvi_start", "ndvi_end")
+          "ndvi_start", "ndvi_end", "dist_to_range_end_log")
 
 spring_issa_dat <- mig_spring_amt %>%
   dplyr::select(deploy_ID, rsteps) %>%
@@ -42,22 +42,35 @@ fall_issa_dat <- mig_fall_amt %>%
 
 means <- spring_issa_dat %>%
   bind_rows(fall_issa_dat) %>%
-  mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
-  summarize(across(.cols = all_of(vars), .fns = mean, na.rm = TRUE))
+  mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
+         dist_to_summ_end_log = log(dist_to_summ_end + 0.001),
+         dist_to_wint_end_log = log(dist_to_wint_end + 0.001),
+         dist_to_range_end_log = case_when(
+           is.na(dist_to_summ_end_log) ~ dist_to_wint_end_log,
+           is.na(dist_to_wint_end_log) ~ dist_to_summ_end_log
+         )) %>%
+  summarize(across(.cols = all_of(vars), .fns = ~ mean(.x, na.rm = TRUE)))
 
-saveRDS(means, "output/means.rds")
+saveRDS(means, "output/means_2023-12-07.rds")
 
 sds <- spring_issa_dat %>%
   bind_rows(fall_issa_dat) %>%
-  mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
-  summarize(across(.cols = all_of(vars), .fns = sd, na.rm = TRUE))
+  mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
+         dist_to_summ_end_log = log(dist_to_summ_end + 0.001),
+         dist_to_wint_end_log = log(dist_to_wint_end + 0.001),
+         dist_to_range_end_log = case_when(
+           is.na(dist_to_summ_end_log) ~ dist_to_wint_end_log,
+           is.na(dist_to_wint_end_log) ~ dist_to_summ_end_log
+         )) %>%
+  summarize(across(.cols = all_of(vars), .fns = ~ sd(.x, na.rm = TRUE)))
 
-saveRDS(sds, "output/sds.rds")
+saveRDS(sds, "output/sds_2023-12-07.rds")
 
 mig_spring_amt <- mig_spring_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
     x %>%
-      mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
+      mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
+             dist_to_range_end_log = log(dist_to_summ_end + 0.001)) %>%
       mutate(snow_start = factor(snow_start),
              snow_end = factor(snow_end),
              land_cover_end = factor(land_cover_end, levels = c("Forest",
@@ -73,7 +86,8 @@ mig_spring_amt <- mig_spring_amt %>%
 mig_fall_amt <- mig_fall_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
     x %>%
-      mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001)) %>%
+      mutate(dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
+             dist_to_range_end_log = log(dist_to_wint_end + 0.001)) %>%
       mutate(snow_start = factor(snow_start),
              snow_end = factor(snow_end),
              land_cover_end = factor(land_cover_end, levels = c("Forest",
@@ -156,6 +170,8 @@ issa_spring <- mig_spring_amt %>%
                           elev_start_sc : I(elev_end_sc - elev_start_sc) +
                           elev_start_sc : I((elev_end_sc - elev_start_sc)^2) +
                           dist_to_roads_end_log_sc +
+                          dist_to_range_end_log_sc +
+                          cos_ta_:dist_to_range_end_log_sc +
                           #I(road_poly_start != road_poly_end) +
                           #cliffs_end +
                           I(ndvi_end_sc - ndvi_start_sc) +
@@ -164,12 +180,19 @@ issa_spring <- mig_spring_amt %>%
                           sl_ +
                           log_sl_ +
                           cos_ta_ +
+                          cos_ta_:log_sl_ +
                           strata(burst_step_id_),
                         model = TRUE))
   })) %>%
   select(deploy_ID, issa)
 
-saveRDS(issa_spring, "output/iSSA_spring_2023-07-26.rds")
+sum(lapply(issa_spring$issa, class) == "try-error")
+# 38 out of 146 do not converge because they're the ones that didn't have a
+# capture unit and therefore didn't have any values of distance to range
+issa_spring <- issa_spring[!lapply(issa_spring$issa, class) == "try-error", ]
+# Filter them out for now
+
+saveRDS(issa_spring, "output/iSSA_spring_2024-01-08.rds")
 
 ## Fall ####
 
@@ -184,6 +207,7 @@ issa_fall <- mig_fall_amt %>%
                           elev_start_sc : I(elev_end_sc - elev_start_sc) +
                           elev_start_sc : I((elev_end_sc - elev_start_sc)^2) +
                           dist_to_roads_end_log_sc +
+                          dist_to_range_end_log_sc +
                           #I(road_poly_start != road_poly_end) +
                           #cliffs_end +
                           I(ndvi_end_sc - ndvi_start_sc) +
@@ -197,7 +221,15 @@ issa_fall <- mig_fall_amt %>%
   })) %>%
   select(deploy_ID, issa)
 
-saveRDS(issa_fall, "output/iSSA_fall_2023-07-26.rds")
+sum(lapply(issa_fall$issa, class) == "try-error")
+# 38 out of 146 do not converge because they're the ones that didn't have a
+# capture unit and therefore didn't have any values of distance to range
+issa_fall <- issa_fall[!lapply(issa_fall$issa, class) == "try-error", ]
+# Filter them out for now
+
+saveRDS(issa_fall, "output/iSSA_fall_2023-12-07.rds")
+# 2023-07-26 is the last one I ran. Compare the new one to that (only difference
+# is the addition of dist_to_range_end_log_sc)
 
 # Explore results ####
 

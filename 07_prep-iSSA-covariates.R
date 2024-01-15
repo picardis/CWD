@@ -966,7 +966,15 @@ writeRaster(wint_rast, "output/processed_layers/winter-residencies-by-capture-un
 gc()
 
 summ_dist <- distance(summ_rast)
+gc()
+writeRaster(summ_dist, "output/processed_layers/distance_to_summer_ranges.tiff",
+            overwrite = TRUE, NAflag = NA)
+rm(summ_dist)
+
 wint_dist <- distance(wint_rast)
+gc()
+writeRaster(wint_dist, "output/processed_layers/distance_to_winter_ranges.tiff",
+            overwrite = TRUE, NAflag = NA)
 
 rm(list=ls()[! ls() %in% c("mig_spring_amt",
                            "mig_fall_amt",
@@ -977,68 +985,88 @@ rm(list=ls()[! ls() %in% c("mig_spring_amt",
 
 gc()
 
-# Extract distance values
+### ALTERNATIVE
+summ_dist <- rast("output/processed_layers/distance_to_summer_ranges.tiff")
+
 mig_spring_amt <- mig_spring_amt %>%
-  filter(!deploy_ID %in% summ_2h$deploy_ID) %>%
-  mutate(rsteps = lapply(rsteps, FUN = function (x) {
-    x %>%
-      extract_covariates(summ_dist, where = "both")
-  }))
+  mutate(csu = lapply(rsteps, FUN = function(x) {x$csu[1]}))
 
-gc()
-
-mig_fall_amt <- mig_fall_amt %>%
-  filter(!deploy_ID %in% wint_2h$deploy_ID) %>%
-  mutate(rsteps = lapply(rsteps, FUN = function (x) {
-    x %>%
-      extract_covariates(wint_dist, where = "both")
-  }))
-
-gc()
-
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-pop-ranges.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-pop-ranges.rds")
-
-mig_spring_amt$rsteps <- lapply(mig_spring_amt$rsteps, function(x) {
-
-  cap <- unique(x$csu)
-  if(is.na(cap)) {
-    x$dist_to_summ_end <- NA
-  } else {
-  vals <- x[, grepl(paste0(cap, "_end"),
-                    colnames(x))]
-  names(vals) <- "dist_to_summ_end"
-  x <- cbind(x, vals)}
-  return(x)
-
-})
-
-mig_fall_amt$rsteps <- lapply(mig_fall_amt$rsteps, function(x) {
-
-  cap <- unique(x$csu)
-  if(is.na(cap)) {
-    x$dist_to_wint_end <- NA
-  } else {
-    vals <- x[, grepl(paste0(cap, "_end"),
-                      colnames(x))]
-    names(vals) <- "dist_to_wint_end"
-    x <- cbind(x, vals)}
-  return(x)
-
-})
-
-# Get rid of distance to irrelevant CSUs
 mig_spring_amt <- mig_spring_amt %>%
-  mutate(rsteps = lapply(rsteps, function(x) {
+  filter(!deploy_ID %in% summ_2h$deploy_ID &
+           !is.na(csu)) %>%
+  mutate(rsteps = lapply(rsteps, FUN = function (x) {
+    cap <- x$csu[1]
+    r <- summ_dist[[cap]]
+    names(r) <- "dist_to_summ"
     x %>%
-      select(x1_:snow_end, dist_to_summ_end)
+      extract_covariates(r, where = "both")
   }))
+### END ALTERNATIVE
 
-mig_fall_amt <- mig_fall_amt %>%
-  mutate(rsteps = lapply(rsteps, function(x) {
-    x %>%
-      select(x1_:snow_end, dist_to_wint_end)
-  }))
+# ### OLD
+# # Extract distance values
+# mig_spring_amt <- mig_spring_amt %>%
+#   filter(!deploy_ID %in% summ_2h$deploy_ID) %>%
+#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
+#     x %>%
+#       extract_covariates(summ_dist, where = "both")
+#   }))
+#
+# gc()
+#
+# mig_fall_amt <- mig_fall_amt %>%
+#   filter(!deploy_ID %in% wint_2h$deploy_ID) %>%
+#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
+#     x %>%
+#       extract_covariates(wint_dist, where = "both")
+#   }))
+#
+# gc()
+#
+# saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-pop-ranges.rds")
+# saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-pop-ranges.rds")
+#
+# mig_spring_amt$rsteps <- lapply(mig_spring_amt$rsteps, function(x) {
+#
+#   cap <- unique(x$csu)
+#   if(is.na(cap)) {
+#     x$dist_to_summ_end <- NA
+#   } else {
+#   vals <- x[, grepl(paste0(cap, "_end"),
+#                     colnames(x))]
+#   names(vals) <- "dist_to_summ_end"
+#   x <- cbind(x, vals)}
+#   return(x)
+#
+# })
+#
+# mig_fall_amt$rsteps <- lapply(mig_fall_amt$rsteps, function(x) {
+#
+#   cap <- unique(x$csu)
+#   if(is.na(cap)) {
+#     x$dist_to_wint_end <- NA
+#   } else {
+#     vals <- x[, grepl(paste0(cap, "_end"),
+#                       colnames(x))]
+#     names(vals) <- "dist_to_wint_end"
+#     x <- cbind(x, vals)}
+#   return(x)
+#
+# })
+#
+# # Get rid of distance to irrelevant CSUs
+# mig_spring_amt <- mig_spring_amt %>%
+#   mutate(rsteps = lapply(rsteps, function(x) {
+#     x %>%
+#       select(x1_:snow_end, dist_to_summ_end)
+#   }))
+#
+# mig_fall_amt <- mig_fall_amt %>%
+#   mutate(rsteps = lapply(rsteps, function(x) {
+#     x %>%
+#       select(x1_:snow_end, dist_to_wint_end)
+#   }))
+# ### END OLD
 
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-dist.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
 saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds")
