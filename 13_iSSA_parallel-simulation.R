@@ -4,10 +4,17 @@ library(amt)
 library(tidyverse)
 library(terra)
 library(lubridate)
+library(parallel)
 
 # Set seed ####
 
 set.seed(22)
+
+# Source functions ####
+
+source("FUN_scale-and-center.R")
+source("FUN_dyn.R")
+source("ssf_formula_fix2.R")
 
 # Load data ####
 
@@ -35,98 +42,112 @@ names(rasts) <- c("land_cover", "elev", "cliffs", "dist_to_roads", "road_poly")
 
 ndvi <- rast("output/processed_layers/NDVI.tiff")
 
-# Choose individual ####
-
-who <- 9
-# 4
-
-ind <- issa_spring$deploy_ID[who]
-
-# Residency ranges ####
-
-csu <- mig_spring_amt %>%
-  select(deploy_ID, csu) %>%
-  filter(deploy_ID == ind) %>%
-  pull(csu) %>%
-  unique() %>%
-  unlist()
-
-summ_rast <- rast("output/processed_layers/summer-residencies-by-capture-unit.tiff")
-#wint_rast <- rast("output/processed_layers/winter-residencies-by-capture-unit.tiff")
-
-focal_summ <- summ_rast[[which(names(summ_rast) == csu)]]
-#focal_wint <- wint_rast[[which(names(wint_rast) == csu)]]
-
-summ_dist <- distance(focal_summ)
-#wint_dist <- distance(focal_wint)
-
-names(summ_dist) <- "dist_to_range"
-#names(wint_dist) <- "dist_to_range"
-
-rasts_spring <- c(rasts, summ_dist)
-#rasts_fall <- c(rasts, wint_dist)
-
 # Loads means and sds to scale and center ####
 
 means <- readRDS("output/means_2023-12-07.rds")
 sds <- readRDS("output/sds_2023-12-07.rds")
 
-# Simulate from individual models ####
+# Parallelize ####
 
-source("FUN_scale-and-center.R")
-source("FUN_dyn.R")
+clust <- makeCluster(2)
 
-# ## Re-assign step length and turn angle distributions ####
-#
-# issa_spring$issa[[which(issa_spring$deploy_ID == ind)]]$sl_ <- attr(mig_spring_amt$rsteps[[1]], "sl_")
-# issa_spring$issa[[which(issa_spring$deploy_ID == ind)]]$ta_ <- attr(mig_spring_amt$rsteps[[1]], "ta_")
+clusterExport(clust, varlist = c("issa_spring",
+                                 "mig_spring_amt",
+                                 "rasts",
+                                 "ndvi",
+                                 "means",
+                                 "sds",
+                                 "find_layer",
+                                 "attach_dyn",
+                                 "redistribution_kernel",
+                                 "simulate_path.redistribution_kernel",
+                                 "scale_data",
+                                 "ssf_formula",
+                                 "ssf_weights"))
 
-## Simulate ####
+parLapply(clust, 1:2, function(x) {
+#parLapply(1:nrow(issa_spring), function(x) {
 
-source("ssf_formula_fix2.R")
+  library(amt)
+  library(tidyverse)
+  library(terra)
+  library(lubridate)
 
-# First generate a redistribution kernel
+  ind <- issa_spring$deploy_ID[x]
 
-start <- make_start(mig_spring_amt$trk[[which(mig_spring_amt$deploy_ID == ind)]],
-                    ta_ = 0,
-                    dt = hours(2)) # Starting location
+  # Residency ranges ####
 
-k1_ind <- redistribution_kernel(x = issa_spring$issa[[which(issa_spring$deploy_ID == ind)]],
-                                map = rasts_spring,
-                                start = start,
-                                fun = function (xy, map) {
-                                  xy %>%
-                                    extract_covariates(map, where = "both") %>%
-                                    attach_dyn(dyn = ndvi, col_name = "ndvi") %>%
-                                    mutate(log_sl_ = log(sl_),
-                                           cos_ta_ = cos(ta_),
-                                           dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
-                                           dist_to_range_end_log = log(dist_to_range_end + 0.001),
-                                           land_cover_end = factor(land_cover_end, levels = c("Forest",
-                                                                                              "Agricultural",
-                                                                                              "Developed",
-                                                                                              "Grassland",
-                                                                                              "Shrubland",
-                                                                                              "Unsuitable")),
-                                           ndvi_start = case_when(
-                                             land_cover_start == "Open Water" ~ 0,
-                                             TRUE ~ ndvi_start
-                                           ),
-                                           ndvi_end = case_when(
-                                             land_cover_end == "Open Water" ~ 0,
-                                             TRUE ~ ndvi_end
-                                           )) %>%
-                                    scale_data(means = means, sds = sds)
-                                })
+  csu <- mig_spring_amt %>%
+    select(deploy_ID, csu) %>%
+    filter(deploy_ID == ind) %>%
+    pull(csu) %>%
+    unique() %>%
+    unlist()
 
-# How many tracks to simulate?
-n <- 100
+  summ_rast <- rast("output/processed_layers/summer-residencies-by-capture-unit.tiff")
+  #wint_rast <- rast("output/processed_layers/winter-residencies-by-capture-unit.tiff")
 
-# Simulate
-system.time({sim <- lapply(1:n, function(i){
-  cat("Iteration", i, "of", n, "           \n")
-  return(simulate_path(k1_ind, n = nrow(mig_spring_amt$trk[[which(mig_spring_amt$deploy_ID == ind)]])))
-})
+  #focal_summ <- summ_rast[[which(names(summ_rast) == csu)]]
+  #focal_wint <- wint_rast[[which(names(wint_rast) == csu)]]
+
+  # summ_dist <- distance(focal_summ)
+  # #wint_dist <- distance(focal_wint)
+  #
+  # names(summ_dist) <- "dist_to_range"
+  # #names(wint_dist) <- "dist_to_range"
+  #
+  # rasts_spring <- c(rasts, summ_dist)
+  # #rasts_fall <- c(rasts, wint_dist)
+  #
+  # # Simulate from individual models ####
+  #
+  # ## Simulate ####
+  #
+  # # First generate a redistribution kernel
+  #
+  # start <- make_start(mig_spring_amt$trk[[which(mig_spring_amt$deploy_ID == ind)]],
+  #                     ta_ = 0,
+  #                     dt = hours(2)) # Starting location
+  #
+  # k1_ind <- redistribution_kernel(x = issa_spring$issa[[which(issa_spring$deploy_ID == ind)]],
+  #                                 map = rasts_spring,
+  #                                 start = start,
+  #                                 fun = function (xy, map) {
+  #                                   xy %>%
+  #                                     extract_covariates(map, where = "both") %>%
+  #                                     attach_dyn(dyn = ndvi, col_name = "ndvi") %>%
+  #                                     mutate(log_sl_ = log(sl_),
+  #                                            cos_ta_ = cos(ta_),
+  #                                            dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
+  #                                            dist_to_range_end_log = log(dist_to_range_end + 0.001),
+  #                                            land_cover_end = factor(land_cover_end, levels = c("Forest",
+  #                                                                                               "Agricultural",
+  #                                                                                               "Developed",
+  #                                                                                               "Grassland",
+  #                                                                                               "Shrubland",
+  #                                                                                               "Unsuitable")),
+  #                                            ndvi_start = case_when(
+  #                                              land_cover_start == "Open Water" ~ 0,
+  #                                              TRUE ~ ndvi_start
+  #                                            ),
+  #                                            ndvi_end = case_when(
+  #                                              land_cover_end == "Open Water" ~ 0,
+  #                                              TRUE ~ ndvi_end
+  #                                            )) %>%
+  #                                     scale_data(means = means, sds = sds)
+  #                                 })
+  #
+  # # How many tracks to simulate?
+  # n <- 10
+  #
+  # # Simulate
+  # sim <- lapply(1:n, function(i){
+  #   cat("Iteration", i, "of", n, "           \n")
+  #   return(simulate_path(k1_ind, n = nrow(mig_spring_amt$trk[[which(mig_spring_amt$deploy_ID == ind)]])))
+  # })
+  #
+  # saveRDS(sim, paste0("output/simulations/sim_", ind, "_spring.rds"))
+
 })
 
 ## Plot ####

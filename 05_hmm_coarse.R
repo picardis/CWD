@@ -478,3 +478,97 @@ mule <- mule %>%
 
 # Save
 saveRDS(mule, "output/mule-deer_regularized-12h_CTMM_with-viterbi.rds")
+
+
+# Plots ####
+
+hmm <- readRDS("output/HMM3_12h_2023-05-09.rds")
+
+# Step length
+
+# Get canonical parameters of gamma distr from mean and variance
+
+# State 1
+shape1 <- hmm$mle$step[1,1]^2/hmm$mle$step[2,1]^2
+scale1 <- hmm$mle$step[2,1]^2/hmm$mle$step[1,1]
+
+# State 2
+shape2 <- hmm$mle$step[1,2]^2/hmm$mle$step[2,2]^2
+scale2 <- hmm$mle$step[2,2]^2/hmm$mle$step[1,2]
+
+# State 3
+shape3 <- hmm$mle$step[1,3]^2/hmm$mle$step[2,3]^2
+scale3 <- hmm$mle$step[2,3]^2/hmm$mle$step[1,3]
+
+# Simulate and plot
+sim_step <- data.frame(x = 0:10000,
+                       sim = c(dgamma(x = 0:10000, shape = shape1, scale = scale1),
+                               dgamma(x = 0:10000, shape = shape2, scale = scale2),
+                               dgamma(x = 0:10000, shape = shape3, scale = scale3)),
+                       state = rep(c("Resting", "Foraging", "Migrating"), each = 10001)) %>%
+  mutate(state = factor(state, levels = c("Resting", "Foraging", "Migrating")))
+
+# Turning angles
+
+# Simulate and plot
+sim_angle <- data.frame(x = seq(-pi, pi, length.out = 100),
+                        sim = c(CircStats::dvm(theta = seq(-pi, pi, length.out = 100),
+                                               mu = hmm$mle$angle[1,1],
+                                               kappa = hmm$mle$angle[2,1]),
+                                CircStats::dvm(theta = seq(-pi, pi, length.out = 100),
+                                               mu = hmm$mle$angle[1,2],
+                                               kappa = hmm$mle$angle[2,2]),
+                                CircStats::dvm(theta = seq(-pi, pi, length.out = 100),
+                                               mu = hmm$mle$angle[1,3],
+                                               kappa = hmm$mle$angle[2,3])),
+                        state = rep(c("Resting", "Foraging", "Migrating"), each = 100)) %>%
+  mutate(state = factor(state, levels = c("Resting", "Foraging", "Migrating")))
+
+# Overlay observed data with fitted distribution in each state
+hmm_data <- hmm$data
+hmm_data$state <- viterbi(hmm)
+
+sl_w_hist <- hmm_data %>%
+  mutate(state = case_when(
+    state == 1 ~ "Resting",
+    state == 2 ~ "Foraging",
+    state == 3 ~ "Migrating"
+  )) %>%
+  mutate(state = factor(state, levels = c("Resting", "Foraging", "Migrating"))) %>%
+  ggplot(aes(x = step)) +
+  geom_histogram(aes(y = ..density.., fill = factor(state)), bins = 80, color = "black") +
+  # geom_density(data = sim_step, mapping = aes(x = x, y = sim), stat = "identity",
+  #              lwd = 0.8) +
+  facet_wrap(~ state) +
+  theme_bw() +
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank()) +
+  labs(x = "Step length (m)", y = "Frequency") +
+  coord_cartesian(ylim = c(0, 0.0012), xlim = c(0, 18000)) +
+  scale_fill_manual(values = c("#AFABAB", "#767171", "#F8AF67"))
+
+ta_w_hist <- hmm_data %>%
+  mutate(state = case_when(
+    state == 1 ~ "Resting",
+    state == 2 ~ "Foraging",
+    state == 3 ~ "Migrating"
+  )) %>%
+  mutate(state = factor(state, levels = c("Resting", "Foraging", "Migrating"))) %>%
+  ggplot(aes(x = angle)) +
+  geom_histogram(aes(y = ..density.., fill = factor(state)), bins = 16, color = "black") +
+  # geom_line(data = sim_angle, mapping = aes(x = x, y = sim), stat = "identity",
+  #           lwd = 0.8) +
+  facet_wrap(~ state) +
+  theme_bw() +
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank()) +
+  scale_x_continuous(breaks = c(0, pi/2, pi, -pi/2),
+                     labels = c("0", "90", "180", "270")) +
+  labs(y = "Frequency", x = "Turning angle (degrees)") +
+  coord_polar(start = pi) +
+  scale_fill_manual(values = c("#AFABAB", "#767171", "#F8AF67"))
+
+sl_w_hist / ta_w_hist
+
+ggsave("output/hmm_sl_ta.tiff", dpi = 300, compression = "lzw",
+       width = 7, height = 4)

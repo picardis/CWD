@@ -15,7 +15,7 @@ save <- FALSE
 
 # Path to file folder ####
 
-path <- "../../../MuleDeerUtah/CleanedFiles/"
+path <- "../MuleDeerUtah/CleanedFiles/"
 
 list.files(path)
 

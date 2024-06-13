@@ -763,6 +763,9 @@ pop_data <- mule12 %>%
   filter(!deploy_ID %in% c(mig_spring_amt$deploy_ID,
                            mig_fall_amt$deploy_ID))
 
+# Save these as validation data for later
+saveRDS(pop_data, "output/validation_data.rds")
+
 # Residency data
 summ_res <- pop_data %>%
   filter(month(t_) %in% 7:9 &
@@ -1001,6 +1004,22 @@ mig_spring_amt <- mig_spring_amt %>%
     x %>%
       extract_covariates(r, where = "both")
   }))
+
+wint_dist <- rast("output/processed_layers/distance_to_winter_ranges.tiff")
+
+mig_fall_amt <- mig_fall_amt %>%
+  mutate(csu = lapply(rsteps, FUN = function(x) {x$csu[1]}))
+
+mig_fall_amt <- mig_fall_amt %>%
+  filter(!deploy_ID %in% wint_2h$deploy_ID &
+           !is.na(csu)) %>%
+  mutate(rsteps = lapply(rsteps, FUN = function (x) {
+    cap <- x$csu[1]
+    r <- wint_dist[[cap]]
+    names(r) <- "dist_to_wint"
+    x %>%
+      extract_covariates(r, where = "both")
+  }))
 ### END ALTERNATIVE
 
 # ### OLD
@@ -1069,4 +1088,4 @@ mig_spring_amt <- mig_spring_amt %>%
 # ### END OLD
 
 saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds_2024-01-08")
