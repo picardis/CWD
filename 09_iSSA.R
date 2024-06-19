@@ -5,8 +5,8 @@ library(tidyverse)
 
 # Load data ####
 
-mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
-mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds")
+mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-06-19.rds")
+mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs_pranges-dist_2024-06-19.rds")
 
 # Calculate movement variables ####
 
@@ -51,7 +51,7 @@ means <- spring_issa_dat %>%
          )) %>%
   summarize(across(.cols = all_of(vars), .fns = ~ mean(.x, na.rm = TRUE)))
 
-saveRDS(means, "output/means_2023-12-07.rds")
+saveRDS(means, "output/means_2024-06-19.rds")
 
 sds <- spring_issa_dat %>%
   bind_rows(fall_issa_dat) %>%
@@ -64,7 +64,7 @@ sds <- spring_issa_dat %>%
          )) %>%
   summarize(across(.cols = all_of(vars), .fns = ~ sd(.x, na.rm = TRUE)))
 
-saveRDS(sds, "output/sds_2023-12-07.rds")
+saveRDS(sds, "output/sds_2024-06-19.rds")
 
 mig_spring_amt <- mig_spring_amt %>%
   mutate(rsteps = lapply(rsteps, FUN = function(x) {
@@ -100,9 +100,7 @@ mig_fall_amt <- mig_fall_amt %>%
       scale_data(means, sds)
   }))
 
-# Fit model ####
-
-## Spring ####
+# Checks ####
 
 x <- mig_spring_amt$rsteps[[1]]
 
@@ -124,7 +122,6 @@ mig_spring_amt %>%
   ungroup() %>%
   pull(n) %>%
   table()
-# 53 out of 152.
 
 # How many individuals have at least one step on a cliff?
 mig_spring_amt %>%
@@ -137,7 +134,6 @@ mig_spring_amt %>%
   ungroup() %>%
   pull(n) %>%
   table()
-# 136 out of 152
 
 # Both of those are problematic and cause convergence problems.
 # Land cover is problematic too, some classes are not represented enough.
@@ -157,7 +153,10 @@ mig_fall_amt %>%
   ungroup() %>%
   pull(n) %>%
   table()
-# 59 out of 152.
+
+# Fit model ####
+
+## Spring ####
 
 issa_spring <- mig_spring_amt %>%
   mutate(issa = lapply(rsteps, FUN = function (x) {
@@ -186,13 +185,7 @@ issa_spring <- mig_spring_amt %>%
   })) %>%
   select(deploy_ID, issa)
 
-sum(lapply(issa_spring$issa, class) == "try-error")
-# 38 out of 146 do not converge because they're the ones that didn't have a
-# capture unit and therefore didn't have any values of distance to range
-issa_spring <- issa_spring[!lapply(issa_spring$issa, class) == "try-error", ]
-# Filter them out for now
-
-saveRDS(issa_spring, "output/iSSA_spring_2024-01-08.rds")
+saveRDS(issa_spring, "output/iSSA_spring_2024-06-19.rds")
 
 ## Fall ####
 
@@ -208,6 +201,7 @@ issa_fall <- mig_fall_amt %>%
                           elev_start_sc : I((elev_end_sc - elev_start_sc)^2) +
                           dist_to_roads_end_log_sc +
                           dist_to_range_end_log_sc +
+                          cos_ta_:dist_to_range_end_log_sc +
                           #I(road_poly_start != road_poly_end) +
                           #cliffs_end +
                           I(ndvi_end_sc - ndvi_start_sc) +
@@ -216,22 +210,15 @@ issa_fall <- mig_fall_amt %>%
                           sl_ +
                           log_sl_ +
                           cos_ta_ +
+                          cos_ta_:log_sl_ +
                           strata(burst_step_id_),
                         model = TRUE))
   })) %>%
   select(deploy_ID, issa)
 
-sum(lapply(issa_fall$issa, class) == "try-error")
-# 38 out of 146 do not converge because they're the ones that didn't have a
-# capture unit and therefore didn't have any values of distance to range
-issa_fall <- issa_fall[!lapply(issa_fall$issa, class) == "try-error", ]
-# Filter them out for now
+saveRDS(issa_fall, "output/iSSA_fall_2024-06-19.rds")
 
-saveRDS(issa_fall, "output/iSSA_fall_2023-12-07.rds")
-# 2023-07-26 is the last one I ran. Compare the new one to that (only difference
-# is the addition of dist_to_range_end_log_sc)
-
-# Explore results ####
+# Explore results (BJS) ####
 
 # Look at elevation gain parameters
 
@@ -286,13 +273,13 @@ issa_spring <- issa_spring %>%
     elev_st = 2500
     # x1
     x1 <- prediction_data(elev_start = elev_st,
-                     elev_end = seq(elev_st - 500,
-                                    elev_st + 500, length.out = 100)) %>%
+                          elev_end = seq(elev_st - 500,
+                                         elev_st + 500, length.out = 100)) %>%
       scale_data(means, sds) %>%
       mutate(elev_gain = elev_end - elev_start)
     # x2
     x2 <- prediction_data(elev_start = elev_st,
-                     elev_end = elev_st) %>%
+                          elev_end = elev_st) %>%
       scale_data(means, sds) %>%
       mutate(elev_gain = elev_end - elev_start)
     # log-RSS
@@ -317,106 +304,3 @@ ggplot() +
             color = "red") +
   coord_cartesian(ylim = c(-100, 100)) +
   theme_bw()
-
-## Inverse variance-weighted regression ####
-
-# Format model output
-issa_spring <- issa_spring %>%
-  mutate(coef = map(issa, function(x) broom::tidy(x$model)))
-
-# Unnest coefficients
-coefs <- issa_spring %>%
-  select(-issa) %>%
-  unnest(cols = coef)
-
-# Nest data frame so that I have one per term (covariate)
-coefs_iv <- coefs %>%
-  nest(data = -term)
-
-# Get rid of ag, developed, and unsuitable that have NAs
-coefs_iv <- coefs_iv %>%
-  filter(!term %in% c("land_cover_endAgricultural",
-                      "land_cover_endDeveloped",
-                      "land_cover_endUnsuitable"))
-
-# Fit linear model and get predictions
-coefs_iv <- coefs_iv %>%
-  mutate(iv = lapply(data, function(x) {
-    mod <- lm(estimate ~ 1, data = x, weights = 1/(std.error)^2)
-    return(mod)
-  })) %>%
-  mutate(pred = lapply(iv, function(x) {
-    pred <- predict(x,
-                    newdata = data.frame(dummy = 1),
-                    se.fit = TRUE)
-    est <- data.frame(mean = pred$fit,
-                      lwr = pred$fit - 1.96 * pred$se.fit,
-                      upr = pred$fit + 1.96 * pred$se.fit)
-    return(est)
-  }))
-
-# Unnest
-
-iv <- coefs_iv %>%
-  dplyr::select(term, pred) %>%
-  unnest(cols = pred)
-
-# Plot parameter estimates ####
-
-term_pretty <- c("Distance to summer range : Cos(turning angle)",
-                 "Distance to summer range",
-                 "NDVI gain : Starting NDVI",
-                 "NDVI gain",
-                 "Distance to roads",
-                 "Elevation gain (quadratic) : Starting elevation",
-                 "Elevation gain (linear) : Starting elevation",
-                 "Elevation gain (quadratic)",
-                 "Elevation gain (linear)",
-                 "Shrubland",
-                 "Grassland")
-
-iv %>%
-  mutate(term_order = c("Q. Grassland",
-                         "P. Shrubland",
-                         "O. Elevation gain (linear)",
-                         "N. Elevation gain (quadratic)",
-                         "I. Distance to roads",
-                         "F. Distance to summer range",
-                         "H. NDVI gain",
-                         "D. Step length",
-                         "C. Log(step length)",
-                         "B. Cos(turning angle)",
-                         "M. Elevation gain (linear) : Starting elevation",
-                         "L. Elevation gain (quadratic) : Starting elevation",
-                         "E. Distance to summer range : Cos(turning angle)",
-                         "G. NDVI gain : Starting NDVI",
-                         "A. Log(step length : Cos(turning angle)")) %>%
-  filter(!term %in% c("cos_ta_", "log_sl_", "sl_", "log_sl_:cos_ta_")) %>%
-  ggplot(aes(x = term_order, y = mean, color = term_order)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  labs(x = " ", y = "log-RSS") +
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.text=element_text(size = 12)) +
-  coord_flip() +
-  scale_x_discrete(labels = term_pretty) +
-  # scale_color_manual(name = "Covariate",
-  #                    values = c(rep("#F8AF67", 2), ##EC8447
-  #                               rep("#767171", 9))) +
-  scale_color_manual(name = "Covariate",
-                     values = rep("#767171", 11))
-
-ggsave("output/IVWR_log-RSS_land-cover-highlight.tiff",
-       dpi = 300, compression = "lzw", width = 8, height = 3)
-ggsave("output/IVWR_log-RSS_elevation-highlight.tiff",
-       dpi = 300, compression = "lzw", width = 8, height = 3)
-ggsave("output/IVWR_log-RSS_roads-highlight.tiff",
-       dpi = 300, compression = "lzw", width = 8, height = 3)
-ggsave("output/IVWR_log-RSS_NDVI-highlight.tiff",
-       dpi = 300, compression = "lzw", width = 8, height = 3)
-ggsave("output/IVWR_log-RSS_dist-to-range-highlight.tiff",
-       dpi = 300, compression = "lzw", width = 8, height = 3)
-ggsave("output/IVWR_log-RSS.tiff",
-       dpi = 300, compression = "lzw", width = 8, height = 3)

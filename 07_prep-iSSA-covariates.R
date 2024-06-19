@@ -21,6 +21,7 @@ set.seed(22)
 # Load data ####
 
 mule2 <- readRDS("output/mule-deer_regularized-2h_with-NAs_2023-07-22.rds")
+mule2 <- mule2[!is.na(mule2$deploy_ID), ] # Temporary fix. This needs to be addressed upstream
 
 # Load HMM output ####
 
@@ -314,8 +315,8 @@ mig_fall_amt <- mig_fall_amt %>%
                        ta_distr = ta_distr_fall)
   }))
 
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_2023-11-21.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_2023-11-21.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_2024-06-13.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_2024-06-13.rds")
 
 # Create extent ####
 
@@ -638,8 +639,8 @@ mig_fall_amt <- mig_fall_amt %>%
 
 # Save dataset ####
 
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-covs.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-covs.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-covs_2024-06-13.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-covs_2024-06-13.rds")
 
 # Load and process dynamic covariates ####
 
@@ -753,8 +754,8 @@ mig_fall_amt <- mig_fall_amt %>%
       ))
   }))
 
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs.rds")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_2024-06-13.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_2024_06_13.rds")
 
 # Population ranges ####
 
@@ -825,7 +826,7 @@ need_summer <- unique(unlist(lapply(1:nrow(mig_spring_amt), FUN = function(x) {
   unique(mig_spring_amt$rsteps[[x]]$csu)})))
 need_winter <- unique(unlist(lapply(1:nrow(mig_fall_amt), FUN = function(x) {
   unique(mig_fall_amt$rsteps[[x]]$csu)})))
-needed_csu <- data.frame(csu = sort(c(unique(need_summer, need_winter)))) %>%
+needed_csu <- data.frame(csu = sort(unique(c(need_summer, need_winter)))) %>%
   mutate(needed_summer = csu %in% need_summer,
          needed_winter = csu %in% need_winter) %>%
   # Do I have what I need from the 12h data?
@@ -869,6 +870,8 @@ n_wint_2h <- res_data_2h %>%
   tally()
 
 # Randomly sample 2 of them per CSU
+set.seed(22)
+
 summ_options <- res_data_2h %>%
   filter(csu %in% miss_summer,
          month(t_) %in% 7:9) %>%
@@ -954,6 +957,8 @@ writeRaster(summ_rast, "output/processed_layers/summer-residencies-by-capture-un
 
 gc()
 
+rm(list=ls()[! ls() %in% c("wint_res", "elev")])
+
 wint_rast <- lapply(unique(wint_res$csu), function(x) {
   rasterize(as.matrix(wint_res[wint_res$csu == x,
                                c("x", "y")]),
@@ -988,7 +993,7 @@ rm(list=ls()[! ls() %in% c("mig_spring_amt",
 
 gc()
 
-### ALTERNATIVE
+# Extract distance to summer ranges
 summ_dist <- rast("output/processed_layers/distance_to_summer_ranges.tiff")
 
 mig_spring_amt <- mig_spring_amt %>%
@@ -1005,10 +1010,13 @@ mig_spring_amt <- mig_spring_amt %>%
       extract_covariates(r, where = "both")
   }))
 
+# Extract distance to winter ranges
 wint_dist <- rast("output/processed_layers/distance_to_winter_ranges.tiff")
 
 mig_fall_amt <- mig_fall_amt %>%
   mutate(csu = lapply(rsteps, FUN = function(x) {x$csu[1]}))
+
+names(wint_dist)[29] <- "La Sal-Browns"
 
 mig_fall_amt <- mig_fall_amt %>%
   filter(!deploy_ID %in% wint_2h$deploy_ID &
@@ -1020,72 +1028,6 @@ mig_fall_amt <- mig_fall_amt %>%
     x %>%
       extract_covariates(r, where = "both")
   }))
-### END ALTERNATIVE
 
-# ### OLD
-# # Extract distance values
-# mig_spring_amt <- mig_spring_amt %>%
-#   filter(!deploy_ID %in% summ_2h$deploy_ID) %>%
-#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
-#     x %>%
-#       extract_covariates(summ_dist, where = "both")
-#   }))
-#
-# gc()
-#
-# mig_fall_amt <- mig_fall_amt %>%
-#   filter(!deploy_ID %in% wint_2h$deploy_ID) %>%
-#   mutate(rsteps = lapply(rsteps, FUN = function (x) {
-#     x %>%
-#       extract_covariates(wint_dist, where = "both")
-#   }))
-#
-# gc()
-#
-# saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-pop-ranges.rds")
-# saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-pop-ranges.rds")
-#
-# mig_spring_amt$rsteps <- lapply(mig_spring_amt$rsteps, function(x) {
-#
-#   cap <- unique(x$csu)
-#   if(is.na(cap)) {
-#     x$dist_to_summ_end <- NA
-#   } else {
-#   vals <- x[, grepl(paste0(cap, "_end"),
-#                     colnames(x))]
-#   names(vals) <- "dist_to_summ_end"
-#   x <- cbind(x, vals)}
-#   return(x)
-#
-# })
-#
-# mig_fall_amt$rsteps <- lapply(mig_fall_amt$rsteps, function(x) {
-#
-#   cap <- unique(x$csu)
-#   if(is.na(cap)) {
-#     x$dist_to_wint_end <- NA
-#   } else {
-#     vals <- x[, grepl(paste0(cap, "_end"),
-#                       colnames(x))]
-#     names(vals) <- "dist_to_wint_end"
-#     x <- cbind(x, vals)}
-#   return(x)
-#
-# })
-#
-# # Get rid of distance to irrelevant CSUs
-# mig_spring_amt <- mig_spring_amt %>%
-#   mutate(rsteps = lapply(rsteps, function(x) {
-#     x %>%
-#       select(x1_:snow_end, dist_to_summ_end)
-#   }))
-#
-# mig_fall_amt <- mig_fall_amt %>%
-#   mutate(rsteps = lapply(rsteps, function(x) {
-#     x %>%
-#       select(x1_:snow_end, dist_to_wint_end)
-#   }))
-# ### END OLD
-
-saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
-saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds_2024-01-08")
+saveRDS(mig_spring_amt, "output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-06-13.rds")
+saveRDS(mig_fall_amt, "output/mig_fall_100rsteps_with-dyn-covs_pranges-dist_2024-06-13.rds")

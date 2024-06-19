@@ -1,5 +1,5 @@
-###############################################################################X
-### Troubleshooting ###########################################################X
+###############################################################################
+### Troubleshooting ###########################################################
 ## In case of error, figure out which rows of the data failed
 # Load deploy_IDs from object
 # inds <- readRDS("output/iSSA_spring_2024-01-08.rds")[[1]]
@@ -20,12 +20,13 @@
 # x <- which(inds == "MD19F0176_45035")
 ###############################################################################X
 
-# Select only individuals that have not been done yet
-done <- stringr::word(list.files("output/simulations"), 2, 3, "_")
-issa_spring <- readRDS("output/iSSA_spring_2024-01-08.rds")
-sub <- issa_spring[!issa_spring$deploy_ID %in% done, ]
-saveRDS(sub, "output/iSSA_spring_2024-01-08_SUBSET_2024-03-09.rds")
-# Restart R!
+# To run in batches:
+# # Select only individuals that have not been done yet
+# done <- stringr::word(list.files("output/simulations"), 2, 3, "_")
+# issa_spring <- readRDS("output/iSSA_spring_2024-06-19.rds")
+# sub <- issa_spring[!issa_spring$deploy_ID %in% done, ]
+# saveRDS(sub, "output/iSSA_spring_2024-06-19_SUBSET_2024-06-19.rds")
+# # Restart R!
 
 # Load packages ####
 
@@ -37,7 +38,7 @@ library(parallel)
 clust <- makeCluster(10)
 
 #system.time({parLapply(clust, 1:107, function(x) {
-system.time({parLapply(clust, 1:7, function(x) {
+  system.time({parLapply(clust, 1:2, function(x) {
 
   library(amt)
   library(tidyverse)
@@ -56,14 +57,11 @@ system.time({parLapply(clust, 1:7, function(x) {
 
   # Load data ####
 
-  mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
-  #mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs_pranges-dist.rds")
+  mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-06-19.rds")
 
   # Load model ####
 
-  issa_spring <- readRDS("output/iSSA_spring_2024-01-08_SUBSET_2024-03-06.rds")
-  #issa_spring <- readRDS("output/iSSA_spring_2024-01-08.rds")
-  #issa_fall <- readRDS("output/iSSA_fall_2023-12-07.rds")
+  issa_spring <- readRDS("output/iSSA_spring_2024-06-19.rds") # Replace with subset if running in batches
 
   # Recreate static raster stack ####
   lyrs <- c("output/processed_layers/elevation_utm.tiff",
@@ -74,15 +72,6 @@ system.time({parLapply(clust, 1:7, function(x) {
 
   rasts <- rast(lyrs)
 
-  # elev <- rast("output/processed_layers/elevation_utm.tiff")
-  # cliffs <- rast("output/processed_layers/cliffs.tif")
-  # dist_to_roads <- rast("output/processed_layers/distance_to_roads_crop.tif")
-  # road_poly <- rast("output/processed_layers/road_polygons.tif")
-  # land_cover <- rast("output/processed_layers/land_cover_simple_utm.tiff") %>%
-  #   project(elev)
-  #
-  # rasts <- rast(list(land_cover, elev, cliffs, dist_to_roads, road_poly))
-
   names(rasts) <- c("elev", "cliffs", "dist_to_roads", "road_poly", "land_cover")
 
   # NDVI ####
@@ -91,8 +80,8 @@ system.time({parLapply(clust, 1:7, function(x) {
 
   # Loads means and sds to scale and center ####
 
-  means <- readRDS("output/means_2023-12-07.rds")
-  sds <- readRDS("output/sds_2023-12-07.rds")
+  means <- readRDS("output/means_2024-06-19.rds")
+  sds <- readRDS("output/sds_2024-06-19.rds")
 
   ind <- issa_spring$deploy_ID[x]
 
@@ -109,21 +98,8 @@ system.time({parLapply(clust, 1:7, function(x) {
     "output/processed_layers/dist-to-summer-range_",
     csu,
     ".tiff"))
-  #wint_rast <- rast("output/processed_layers/winter-residencies-by-capture-unit.tiff")
 
-  # focal_summ <- summ_rast[[which(names(summ_rast) == csu)]]
-  # rm(summ_rast)
-  # #focal_wint <- wint_rast[[which(names(wint_rast) == csu)]]
-  #
-  # summ_dist <- distance(focal_summ)
-  # rm(focal_summ)
-  # #wint_dist <- distance(focal_wint)
-  #
   names(summ_dist) <- "dist_to_range"
-  # #names(wint_dist) <- "dist_to_range"
-
-  # rasts_spring <- c(rasts, summ_dist) # Moved this to a second 'extract_covariates()' line
-  #rasts_fall <- c(rasts, wint_dist)
 
   # Garbage cleanup after processing all the rasters
   gc()
@@ -204,10 +180,10 @@ system.time({parLapply(clust, 1:7, function(x) {
 
   if (is.null(sim)) {
     # Delete anything saved
-    unlink(paste0("output/simulations/sim_", ind, "_spring.rds"))
+    unlink(paste0("output/simulations/sim_", ind, "_spring_", Sys.Date(), ".rds"))
 
   } else {
-    saveRDS(sim, paste0("output/simulations/sim_", ind, "_spring.rds"))
+    saveRDS(sim, paste0("output/simulations/sim_", ind, "_spring_", Sys.Date(), ".rds"))
   }
 
 
