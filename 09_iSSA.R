@@ -34,10 +34,10 @@ vars <- c("elev_start", "elev_end", "dist_to_roads_end_log",
           "ndvi_start", "ndvi_end", "dist_to_range_end_log")
 
 spring_issa_dat <- mig_spring_amt %>%
-  dplyr::select(deploy_ID, rsteps) %>%
+  dplyr::select(deploy_ID_year, rsteps) %>%
   unnest(cols = rsteps)
 fall_issa_dat <- mig_fall_amt %>%
-  dplyr::select(deploy_ID, rsteps) %>%
+  dplyr::select(deploy_ID_year, rsteps) %>%
   unnest(cols = rsteps)
 
 means <- spring_issa_dat %>%
@@ -112,12 +112,12 @@ x %>%
 
 # How many individuals have at least one step that cross a road?
 mig_spring_amt %>%
-  dplyr::select(deploy_ID, rsteps) %>%
+  dplyr::select(deploy_ID_year, rsteps) %>%
   unnest(cols = rsteps) %>%
   mutate(road_cross = road_poly_start != road_poly_end) %>%
-  group_by(deploy_ID, road_cross) %>%
+  group_by(deploy_ID_year, road_cross) %>%
   tally() %>%
-  group_by(deploy_ID) %>%
+  group_by(deploy_ID_year) %>%
   tally() %>%
   ungroup() %>%
   pull(n) %>%
@@ -125,11 +125,11 @@ mig_spring_amt %>%
 
 # How many individuals have at least one step on a cliff?
 mig_spring_amt %>%
-  dplyr::select(deploy_ID, rsteps) %>%
+  dplyr::select(deploy_ID_year, rsteps) %>%
   unnest(cols = rsteps) %>%
-  group_by(deploy_ID, cliffs_end) %>%
+  group_by(deploy_ID_year, cliffs_end) %>%
   tally() %>%
-  group_by(deploy_ID) %>%
+  group_by(deploy_ID_year) %>%
   tally() %>%
   ungroup() %>%
   pull(n) %>%
@@ -144,11 +144,11 @@ mig_spring_amt %>%
 
 # How many individuals that never encounter snow?
 mig_fall_amt %>%
-  dplyr::select(deploy_ID, rsteps) %>%
+  dplyr::select(deploy_ID_year, rsteps) %>%
   unnest(cols = rsteps) %>%
-  group_by(deploy_ID, snow_end) %>%
+  group_by(deploy_ID_year, snow_end) %>%
   tally() %>%
-  group_by(deploy_ID) %>%
+  group_by(deploy_ID_year) %>%
   tally() %>%
   ungroup() %>%
   pull(n) %>%
@@ -183,7 +183,7 @@ issa_spring <- mig_spring_amt %>%
                           strata(burst_step_id_),
                         model = TRUE))
   })) %>%
-  select(deploy_ID, issa)
+  select(deploy_ID_year, deploy_ID, issa)
 
 saveRDS(issa_spring, "output/iSSA_spring_2024-06-19.rds")
 
@@ -214,7 +214,7 @@ issa_fall <- mig_fall_amt %>%
                           strata(burst_step_id_),
                         model = TRUE))
   })) %>%
-  select(deploy_ID, issa)
+  select(deploy_ID_year, deploy_ID, issa)
 
 saveRDS(issa_fall, "output/iSSA_fall_2024-06-19.rds")
 
@@ -289,7 +289,7 @@ issa_spring <- issa_spring %>%
   }))
 
 elev_data <- issa_spring %>%
-  select(deploy_ID, elev_pred) %>%
+  select(deploy_ID_year, elev_pred) %>%
   unnest(cols = elev_pred)
 
 elev_mean <- elev_data %>%
@@ -298,7 +298,7 @@ elev_mean <- elev_data %>%
 
 ggplot() +
   geom_line(data = elev_data, aes(x = elev_gain_x1, y = log_rss,
-                                  group = deploy_ID),
+                                  group = deploy_ID_year),
             alpha = 0.1) +
   geom_line(data = elev_mean, aes(x = elev_gain_x1, y = log_rss),
             color = "red") +

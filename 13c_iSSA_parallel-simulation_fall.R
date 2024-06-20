@@ -24,7 +24,7 @@
 # # Select only individuals that have not been done yet
 # done <- stringr::word(list.files("output/simulations"), 2, 3, "_")
 # issa_fall <- readRDS("output/iSSA_fall_2024-06-19.rds")
-# sub <- issa_fall[!issa_fall$deploy_ID %in% done, ]
+# sub <- issa_fall[!issa_fall$deploy_ID_year %in% done, ]
 # saveRDS(sub, "output/iSSA_fall_2024-06-19_SUBSET_2024-06-19.rds")
 # # Restart R!
 
@@ -37,8 +37,11 @@ library(parallel)
 # Uses ~ 5GB RAM/cluster. Limit to 10 clusters for RAM considerations.
 clust <- makeCluster(10)
 
-#system.time({parLapply(clust, 1:107, function(x) {
-  system.time({parLapply(clust, 1:2, function(x) {
+mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs_pranges-dist_2024-06-19.rds")
+xs <- nrow(mig_fall_amt)
+rm(mig_fall_amt)
+
+system.time({parLapply(clust, 1:xs, function(x) {
 
   library(amt)
   library(tidyverse)
@@ -65,14 +68,14 @@ clust <- makeCluster(10)
 
   # Recreate static raster stack ####
   lyrs <- c("output/processed_layers/elevation_utm.tiff",
-            "output/processed_layers/cliffs.tif",
             "output/processed_layers/distance_to_roads_crop.tif",
-            "output/processed_layers/road_polygons.tif",
             "output/processed_layers/land_cover_simple_utm.tiff")
 
   rasts <- rast(lyrs)
 
-  names(rasts) <- c("elev", "cliffs", "dist_to_roads", "road_poly", "land_cover")
+  names(rasts) <- c("elev",
+                    "dist_to_roads",
+                    "land_cover")
 
   # NDVI ####
 
@@ -83,23 +86,23 @@ clust <- makeCluster(10)
   means <- readRDS("output/means_2024-06-19.rds")
   sds <- readRDS("output/sds_2024-06-19.rds")
 
-  ind <- issa_fall$deploy_ID[x]
+  ind <- issa_fall$deploy_ID_year[x]
 
   # Residency ranges ####
 
   csu <- mig_fall_amt %>%
-    select(deploy_ID, csu) %>%
-    filter(deploy_ID == ind) %>%
+    select(deploy_ID_year, csu) %>%
+    filter(deploy_ID_year == ind) %>%
     pull(csu) %>%
     unique() %>%
     unlist()
 
-  summ_dist <- rast(paste0(
+  wint_dist <- rast(paste0(
     "output/processed_layers/dist-to-winter-range_",
     csu,
     ".tiff"))
 
-  names(summ_dist) <- "dist_to_range"
+  names(wint_dist) <- "dist_to_range"
 
   # Garbage cleanup after processing all the rasters
   gc()
@@ -110,18 +113,18 @@ clust <- makeCluster(10)
 
   # First generate a redistribution kernel
 
-  start <- make_start(mig_fall_amt$trk[[which(mig_fall_amt$deploy_ID == ind)]],
+  start <- make_start(mig_fall_amt$trk[[which(mig_fall_amt$deploy_ID_year == ind)]],
                       ta_ = 0,
                       dt = hours(2)) # Starting location
 
   # Store coefficients and set any NA coefficients to 0
-  B <- coef(issa_fall$issa[[which(issa_fall$deploy_ID == ind)]])
+  B <- coef(issa_fall$issa[[which(issa_fall$deploy_ID_year == ind)]])
   B[is.na(B)] <- 0
 
   # Make iSSF model with substituted coefficients
   mm <- make_issf_model(coefs = B,
-                        sl = sl_distr(issa_fall$issa[[which(issa_fall$deploy_ID == ind)]]),
-                        ta = ta_distr(issa_fall$issa[[which(issa_fall$deploy_ID == ind)]]))
+                        sl = sl_distr(issa_fall$issa[[which(issa_fall$deploy_ID_year == ind)]]),
+                        ta = ta_distr(issa_fall$issa[[which(issa_fall$deploy_ID_year == ind)]]))
 
   k1_ind <- redistribution_kernel(x = mm,
                                   map = rasts,
@@ -129,7 +132,7 @@ clust <- makeCluster(10)
                                   fun = function (xy, map) {
                                     xy %>%
                                       extract_covariates(map, where = "both") %>%
-                                      extract_covariates(summ_dist, where = "both") %>%
+                                      extract_covariates(wint_dist, where = "both") %>%
                                       mutate(land_cover_endAgricultural = as.numeric(
                                         land_cover_end == "Agricultural"),
                                         land_cover_endDeveloped = as.numeric(
@@ -145,12 +148,6 @@ clust <- makeCluster(10)
                                              cos_ta_ = cos(ta_),
                                              dist_to_roads_end_log = log(dist_to_roads_end + 0.001),
                                              dist_to_range_end_log = log(dist_to_range_end + 0.001),
-                                             # land_cover_end = factor(land_cover_end, levels = c("Forest",
-                                             #                                                    "Agricultural",
-                                             #                                                    "Developed",
-                                             #                                                    "Grassland",
-                                             #                                                    "Shrubland",
-                                             #                                                    "Unsuitable")),
                                              ndvi_start = case_when(
                                                land_cover_start == "Open Water" ~ 0,
                                                TRUE ~ ndvi_start
@@ -172,8 +169,8 @@ clust <- makeCluster(10)
     sim <- lapply(1:n, function(i){
       cat("Iteration", i, "of", n, "           \n")
       return(simulate_path(k1_ind,
-                           #n = nrow(mig_fall_amt$trk[[which(mig_fall_amt$deploy_ID == ind)]])
-                           n = 360 #max(sapply(mig_fall_amt$trk, nrow))
+                           n = nrow(mig_fall_amt$steps[[which(mig_fall_amt$deploy_ID_year == ind)]])
+                           #n = 360 #max(sapply(mig_fall_amt$trk, nrow))
       ))
     })
   })

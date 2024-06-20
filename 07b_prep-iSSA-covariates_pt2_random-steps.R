@@ -21,7 +21,7 @@ mig_fall_amt <- readRDS("output/mig-trk_fall_2h-res.rds")
 
 # Spring
 sl_spring <- mig_spring_amt %>%
-  dplyr::select(deploy_ID, steps) %>%
+  dplyr::select(deploy_ID_year, steps) %>%
   unnest(cols = steps) %>%
   filter(!is.na(sl_) & sl_ > 0) %>%
   pull(sl_)
@@ -32,7 +32,7 @@ sl_distr_spring <- fit_distr(sl_spring, dist_name = "gamma")
 
 # Fall
 sl_fall <- mig_fall_amt %>%
-  dplyr::select(deploy_ID, steps) %>%
+  dplyr::select(deploy_ID_year, steps) %>%
   unnest(cols = steps) %>%
   filter(!is.na(sl_) & sl_ > 0) %>%
   pull(sl_)
@@ -45,7 +45,7 @@ sl_distr_fall <- fit_distr(sl_fall, dist_name = "gamma")
 
 # Spring
 ta_spring <- mig_spring_amt %>%
-  dplyr::select(deploy_ID, steps) %>%
+  dplyr::select(deploy_ID_year, steps) %>%
   unnest(cols = steps) %>%
   filter(!is.na(ta_)) %>%
   pull(ta_)
@@ -56,7 +56,7 @@ ta_distr_spring <- fit_distr(ta_spring, dist_name = "vonmises")
 
 # Fall
 ta_fall <- mig_fall_amt %>%
-  dplyr::select(deploy_ID, steps) %>%
+  dplyr::select(deploy_ID_year, steps) %>%
   unnest(cols = steps) %>%
   filter(!is.na(ta_)) %>%
   pull(ta_)

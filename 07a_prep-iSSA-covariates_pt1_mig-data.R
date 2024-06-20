@@ -188,7 +188,11 @@ saveRDS(fall_mig_data, "output/mig-data_fall_2h-res.rds")
 
 mig_spring_amt <- spring_mig_data %>%
   filter(!is.na(x_) & !is.na(y_)) %>%
-  nest(cols = -deploy_ID) %>%
+  # Make the unit the deployment-year rather than the deployment ID
+  mutate(year = year(t_),
+         deploy_ID_year = paste0(deploy_ID, "_", year)) %>%
+  nest(cols = -deploy_ID_year) %>%
+  mutate(deploy_ID = stringr::word(deploy_ID_year, 1, 2, "_")) %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
       arrange(t_) %>%
@@ -200,14 +204,19 @@ mig_spring_amt <- spring_mig_data %>%
     x %>%
       arrange(t_) %>%
       steps_by_burst(keep_cols = "end")
-  }))
+  })) %>%
+  select(deploy_ID_year, deploy_ID, cols, trk, steps)
 
 # Check that all steps are at 2h resolution (FALSE means they all are)
 any(unlist(lapply(mig_spring_amt$steps, function(x) {unique(x$dt_)})) != 2)
 
 mig_fall_amt <- fall_mig_data %>%
   filter(!is.na(x_) & !is.na(y_)) %>%
-  nest(cols = -deploy_ID) %>%
+  # Make the unit the deployment-year rather than the deployment ID
+  mutate(year = year(t_),
+         deploy_ID_year = paste0(deploy_ID, "_", year)) %>%
+  nest(cols = -deploy_ID_year) %>%
+  mutate(deploy_ID = stringr::word(deploy_ID_year, 1, 2, "_")) %>%
   mutate(trk = lapply(cols, FUN = function (x) {
     x %>%
       arrange(t_) %>%
@@ -219,7 +228,8 @@ mig_fall_amt <- fall_mig_data %>%
     x %>%
       arrange(t_) %>%
       steps_by_burst(keep_cols = "end")
-  }))
+  })) %>%
+  select(deploy_ID_year, deploy_ID, cols, trk, steps)
 
 # Check that all steps are at 2h resolution (FALSE means they all are)
 any(unlist(lapply(mig_fall_amt$steps, function(x) {unique(x$dt_)})) != 2)
