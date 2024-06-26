@@ -6,39 +6,47 @@ library(patchwork)
 
 # Load data on real migrations ####
 
-mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-01-08.rds")
+mig_spring_amt <- readRDS("output/mig_spring_100rsteps_with-dyn-covs_pranges-dist_2024-06-19.rds")
+mig_fall_amt <- readRDS("output/mig_fall_100rsteps_with-dyn-covs_pranges-dist_2024-06-19.rds")
 
 mig_spring <- mig_spring_amt %>%
-  select(-csu) %>%
+  select(-csu, -deploy_ID) %>%
   unnest(cols = trk)
 
 rm(mig_spring_amt)
 
+mig_fall <- mig_fall_amt %>%
+  select(-csu, -deploy_ID) %>%
+  unnest(cols = trk)
+
+rm(mig_fall_amt)
+
 # Table of migration durations
-mig_spring %>%
-  group_by(burst) %>%
+mig_durations_spring <- mig_spring %>%
+  group_by(deploy_ID_year) %>%
   mutate(track_dur = difftime(max(t_), min(t_), unit = "days"),
          start = min(t_),
          end = max(t_)) %>%
-  select(burst, track_dur, start, end) %>%
+  select(deploy_ID_year, track_dur, start, end) %>%
   distinct()
 
-mig_durations <- mig_spring %>%
-  mutate(ind_year = paste0(deploy_ID, "_", year(t_))) %>%
-  group_by(ind_year) %>%
+#saveRDS(mig_durations_spring, "output/spring_mig_durations.rds")
+
+mig_durations_fall <- mig_fall %>%
+  group_by(deploy_ID_year) %>%
   mutate(track_dur = difftime(max(t_), min(t_), unit = "days"),
          start = min(t_),
          end = max(t_)) %>%
-  select(ind_year, track_dur, start, end) %>%
+  select(deploy_ID_year, track_dur, start, end) %>%
   distinct()
 
-saveRDS(mig_durations, "output/spring_mig_durations.rds")
+#saveRDS(mig_durations_fall, "output/fall_mig_durations.rds")
 
 # Load validation data ####
 
 vali <- readRDS("output/validation_data.rds")
 
-vali <- vali %>%
+vali_spring <- vali %>%
   filter(vit_3states == 3 &
            month(t_) %in% 4:6) %>%
   mutate(csu = case_when(
@@ -46,10 +54,19 @@ vali <- vali %>%
              is.na(realCaptur) ~ captureSubUnit
            ))
 
+vali_fall <- vali %>%
+  filter(vit_3states == 3 &
+           month(t_) %in% 10:12) %>%
+  mutate(csu = case_when(
+    !is.na(realCaptur) ~ realCaptur,
+    is.na(realCaptur) ~ captureSubUnit
+  ))
+
 # Load simulation results ####
 
 # Spring
 files <- list.files("output/simulations", pattern = "spring", full.names = TRUE)
+files <- files[grepl("spring.rds", files)]
 
 ind_sims <- data.frame()
 
@@ -77,35 +94,6 @@ for (f in 1:length(files)) {
 
 template <- rast("output/processed_layers/elevation_utm.tiff")
 
-# Subset one region at a time? ####
-
-# If I calculate the percent points per pixel, imbalances in different efforts
-# across region are going to complicate the interpretation of results
-# Might be better to calculate percentages relative to one region (one or more
-# CSUs)
-
-# csus <- unique(mig_spring[mig_spring$x_ >= 630000 &
-#              mig_spring$x_ <= 680000 &
-#              mig_spring$y_ >= 4222000 &
-#              mig_spring$y_ <= 4290000, ]$csu)
-#
-# mig_spring <- mig_spring %>%
-#   filter(csu %in% csus) %>%
-#   nrow()
-#
-# vali <- vali %>%
-#   filter(csu %in% csus) %>%
-#   nrow()
-#
-# ind_sims <- ind_sims %>%
-#   filter(id %in% unique(mig_spring$deploy_ID))
-
-# Or crop to an extent and calculate everything relative to that extent
-# r <- rast()
-# ext(r) <- c(560000, 700000,
-#             4130000, 4300000)
-# template <- crop(template, r)
-
 # Make points ####
 
 ## Simulated points ####
@@ -128,10 +116,12 @@ vali_pts <- vect(as.data.frame(vali[, c("x", "y")]),
 
 sim_ras <- rasterize(x = pts, y = template, fun = "count")
 
+# Replace NAs with zeros
+values(sim_ras) <- ifelse(is.na(values(sim_ras)), 0, values(sim_ras))
+
 # Log of the raw values
-sim_ras_log <- sim_ras
-values(sim_ras_log) <- log(values(sim_ras))
-values(sim_ras_log) <- ifelse(is.na(values(sim_ras_log)), 0, values(sim_ras_log))
+sim_ras_log <- sim_ras + 0.1
+values(sim_ras_log) <- log(values(sim_ras_log))
 
 plot(sim_ras_log, col = viridis::viridis(n = 10))
 
@@ -145,27 +135,15 @@ sd_srl <- sd(values(sim_ras_log_agg2), na.rm = TRUE)
 sim_ras_log_sc <- (sim_ras_log_agg2 - mean_srl)/sd_srl
 plot(sim_ras_log_sc, col = viridis::viridis(n = 10))
 
-# Percent values
-sim_ras_perc <- sim_ras/nrow(ind_sims)
-
-# Standardized log of percent values
-sim_ras_perc_log <- log(sim_ras_perc)
-mean_srpl <- mean(values(sim_ras_perc_log), na.rm = TRUE)
-sd_srpl <- sd(values(sim_ras_perc_log), na.rm = TRUE)
-sim_ras_perc_log_sc <- (sim_ras_perc_log - mean_srpl)/sd_srpl
-plot(sim_ras_perc_log_sc, col = viridis::viridis(n = 10))
-
-# THIS IS BAD: FIRST SCALE AND CENTER AND THEN TAKE LOG? THROWS OUT HALF THE VALUES
-# sim_ras_perc <- sim_ras/nrow(ind_sims) # Maybe need to divide by number of points?
-# mean_srp <- mean(values(sim_ras_perc), na.rm = TRUE)
-# sd_srp <- sd(values(sim_ras_perc), na.rm = TRUE)
-# sim_ras_perc <- (sim_ras_perc - mean_srp)/sd_srp
+# # Percent values
+# sim_ras_perc <- sim_ras/nrow(ind_sims)
+#
+# # Standardized log of percent values
 # sim_ras_perc_log <- log(sim_ras_perc)
-# values(sim_ras_perc_log) <- ifelse(is.na(values(sim_ras_perc_log)),
-#                                    min(values(sim_ras_perc_log), na.rm = TRUE) - 1,
-#                                    values(sim_ras_perc_log))
-# sim_ras_perc_log_agg <- aggregate(sim_ras_perc_log, fact = 100)
-# plot(sim_ras_perc_log_agg, col = viridis::viridis(n = 10))
+# mean_srpl <- mean(values(sim_ras_perc_log), na.rm = TRUE)
+# sd_srpl <- sd(values(sim_ras_perc_log), na.rm = TRUE)
+# sim_ras_perc_log_sc <- (sim_ras_perc_log - mean_srpl)/sd_srpl
+# plot(sim_ras_perc_log_sc, col = viridis::viridis(n = 10))
 
 tiff("output/sim_spring.tiff", width = 4, height = 8, units = "in",
      res = 300, compression = "lzw")
@@ -176,10 +154,12 @@ dev.off()
 
 real_ras <- rasterize(x = real_pts, y = template, fun = "count")
 
+# Replace NAs with zeros
+values(real_ras) <- ifelse(is.na(values(real_ras)), 0, values(real_ras))
+
 # Log of the raw values
-real_ras_log <- real_ras
-values(real_ras_log) <- log(values(real_ras))
-values(real_ras_log) <- ifelse(is.na(values(real_ras_log)), 0, values(real_ras_log))
+real_ras_log <- real_ras + 0.1
+values(real_ras_log) <- log(values(real_ras_log))
 
 plot(real_ras_log, col = viridis::viridis(n = 10))
 
@@ -193,27 +173,15 @@ sd_srl <- sd(values(real_ras_log_agg2), na.rm = TRUE)
 real_ras_log_sc <- (real_ras_log_agg2 - mean_srl)/sd_srl
 plot(real_ras_log_sc, col = viridis::viridis(n = 10))
 
-# Percent values
-real_ras_perc <- real_ras/nrow(mig_spring)
-
-# Standardized log of percent values
-real_ras_perc_log <- log(real_ras_perc)
-mean_srpl <- mean(values(real_ras_perc_log), na.rm = TRUE)
-sd_srpl <- sd(values(real_ras_perc_log), na.rm = TRUE)
-real_ras_perc_log_sc <- (real_ras_perc_log - mean_srpl)/sd_srpl
-plot(real_ras_perc_log_sc, col = viridis::viridis(n = 10))
-
-# THIS IS BAD: FIRST SCALE AND CENTER AND THEN TAKE LOG? THROWS OUT HALF THE VALUES
+# # Percent values
 # real_ras_perc <- real_ras/nrow(mig_spring)
-# mean_srp <- mean(values(real_ras_perc), na.rm = TRUE)
-# sd_srp <- sd(values(real_ras_perc), na.rm = TRUE)
-# real_ras_perc <- (real_ras_perc - mean_srp)/sd_srp
+#
+# # Standardized log of percent values
 # real_ras_perc_log <- log(real_ras_perc)
-# values(real_ras_perc_log) <- ifelse(is.na(values(real_ras_perc_log)),
-#                                     min(values(real_ras_perc_log), na.rm = TRUE) - 1,
-#                                     values(real_ras_perc_log))
-# real_ras_perc_log_agg <- aggregate(real_ras_perc_log, fact = 100)
-# plot(real_ras_perc_log_agg, col = viridis::viridis(n = 10))
+# mean_srpl <- mean(values(real_ras_perc_log), na.rm = TRUE)
+# sd_srpl <- sd(values(real_ras_perc_log), na.rm = TRUE)
+# real_ras_perc_log_sc <- (real_ras_perc_log - mean_srpl)/sd_srpl
+# plot(real_ras_perc_log_sc, col = viridis::viridis(n = 10))
 
 tiff("output/real_spring.tiff", width = 4, height = 8, units = "in",
      res = 300, compression = "lzw")
@@ -224,37 +192,55 @@ dev.off()
 
 vali_ras <- rasterize(x = vali_pts, y = template, fun = "count")
 
-vali_ras_log <- vali_ras
-values(vali_ras_log) <- log(values(vali_ras))
-values(vali_ras_log) <- ifelse(is.na(values(vali_ras_log)), 0, values(vali_ras_log))
+# Replace NAs with zeros
+values(vali_ras) <- ifelse(is.na(values(vali_ras)), 0, values(vali_ras))
+
+# Log of the raw values
+vali_ras_log <- vali_ras + 0.1
+values(vali_ras_log) <- log(values(vali_ras_log))
 
 plot(vali_ras_log, col = viridis::viridis(n = 10))
 
+# Aggregated log values
 vali_ras_log_agg2 <- aggregate(vali_ras_log, fact = 100)
 plot(vali_ras_log_agg2, col = viridis::viridis(n = 10))
 
-vali_ras_perc <- vali_ras/nrow(vali)
-mean_srp <- mean(values(vali_ras_perc), na.rm = TRUE)
-sd_srp <- sd(values(vali_ras_perc), na.rm = TRUE)
-vali_ras_perc <- (vali_ras_perc - mean_srp)/sd_srp
-vali_ras_perc_log <- log(vali_ras_perc)
-values(vali_ras_perc_log) <- ifelse(is.na(values(vali_ras_perc_log)),
-                                    min(values(vali_ras_perc_log), na.rm = TRUE) - 1,
-                                    values(vali_ras_perc_log))
-vali_ras_perc_log_agg <- aggregate(vali_ras_perc_log, fact = 100)
-plot(vali_ras_perc_log_agg, col = viridis::viridis(n = 10))
+# Standardized log values
+mean_srl <- mean(values(vali_ras_log_agg2), na.rm = TRUE)
+sd_srl <- sd(values(vali_ras_log_agg2), na.rm = TRUE)
+vali_ras_log_sc <- (vali_ras_log_agg2 - mean_srl)/sd_srl
+plot(vali_ras_log_sc, col = viridis::viridis(n = 10))
+
+# vali_ras_perc <- vali_ras/nrow(vali)
+# mean_srp <- mean(values(vali_ras_perc), na.rm = TRUE)
+# sd_srp <- sd(values(vali_ras_perc), na.rm = TRUE)
+# vali_ras_perc <- (vali_ras_perc - mean_srp)/sd_srp
+# vali_ras_perc_log <- log(vali_ras_perc)
+# values(vali_ras_perc_log) <- ifelse(is.na(values(vali_ras_perc_log)),
+#                                     min(values(vali_ras_perc_log), na.rm = TRUE) - 1,
+#                                     values(vali_ras_perc_log))
+# vali_ras_perc_log_agg <- aggregate(vali_ras_perc_log, fact = 100)
+# plot(vali_ras_perc_log_agg, col = viridis::viridis(n = 10))
 
 tiff("output/vali_spring.tiff", width = 4, height = 8, units = "in",
      res = 300, compression = "lzw")
 plot(vali_ras_perc_log_agg, col = viridis::viridis(n = 10))
 dev.off()
 
-tiff("output/real_sim_vali_spring.tiff", width = 13, height = 8, units = "in",
+# tiff("output/real_sim_vali_spring.tiff", width = 13, height = 8, units = "in",
+#      res = 300, compression = "lzw")
+# par(mfrow = c(1, 3))
+# plot(real_ras_perc_log_agg, col = viridis::viridis(n = 10), main = "Observed")
+# plot(sim_ras_perc_log_agg, col = viridis::viridis(n = 10), main = "Simulated")
+# plot(vali_ras_perc_log_agg, col = viridis::viridis(n = 10), main = "Validation")
+# dev.off()
+
+tiff("output/real_sim_vali_spring_log_sc.tiff", width = 13, height = 8, units = "in",
      res = 300, compression = "lzw")
 par(mfrow = c(1, 3))
-plot(real_ras_perc_log_agg, col = viridis::viridis(n = 10), main = "Observed")
-plot(sim_ras_perc_log_agg, col = viridis::viridis(n = 10), main = "Simulated")
-plot(vali_ras_perc_log_agg, col = viridis::viridis(n = 10), main = "Validation")
+plot(real_ras_log_sc, col = viridis::viridis(n = 10), main = "Observed")
+plot(sim_ras_log_sc, col = viridis::viridis(n = 10), main = "Simulated")
+plot(vali_ras_log_sc, col = viridis::viridis(n = 10), main = "Validation")
 dev.off()
 
 # Plot cropped maps ####
